@@ -390,7 +390,34 @@
   .ppt-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; padding:4px 0; }
   .ppt-toggle input { width:16px; height:16px; accent-color:var(--accent); }
   .ppt-note { font-size:12px; color:var(--text-tertiary); line-height:1.65; margin-top:12px; }
+  .ppt-side { display:flex; flex-direction:column; gap:16px; }
   @media (max-width:1120px) { .ppt-wrap { grid-template-columns:1fr; } }
+
+  /* ---------- 视觉预览（16:9 仿真，随配色与主题实时变化） ---------- */
+  .pv-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; max-height:486px; overflow-y:auto; padding:2px 2px 4px; }
+  .pv-cell { position:relative; border:1px solid var(--border); border-radius:10px; overflow:hidden; cursor:zoom-in;
+    background:var(--surface-nested); transition:border-color .12s, box-shadow .12s; }
+  .pv-cell:hover { border-color:var(--accent); box-shadow:0 4px 14px rgba(0,0,0,.10); }
+  .pv-cell .no { position:absolute; right:5px; top:5px; z-index:2; background:rgba(0,0,0,.42); color:#fff;
+    font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:5px; letter-spacing:.04em; }
+  .pv-slide { position:relative; width:100%; aspect-ratio:16/9; container-type:inline-size; overflow:hidden;
+    font-family:"Microsoft YaHei","微软雅黑",system-ui,sans-serif; }
+  .pv-slide .pv-en { position:absolute; font-weight:600; letter-spacing:.2em; white-space:nowrap; }
+  .pv-slide .pv-title { position:absolute; font-weight:800; display:flex; align-items:center; }
+  .pv-slide .pv-txt { position:absolute; }
+  .pv-slide .pv-foot, .pv-slide .pv-num { position:absolute; }
+  .pv-slide .pv-num { text-align:right; }
+  .pv-overlay { position:fixed; inset:0; z-index:80; padding:22px; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:14px; background:color-mix(in srgb, var(--text) 66%, transparent); backdrop-filter:blur(4px);
+    animation:fade .16s ease; }
+  .pv-stage { width:min(1080px, 94vw); border-radius:14px; overflow:hidden; box-shadow:0 28px 70px rgba(0,0,0,.4); }
+  .pv-bar2 { display:flex; align-items:center; gap:12px; color:#fff; flex-wrap:wrap; justify-content:center; }
+  .pv-bar2 .nm { font-size:12.5px; opacity:.92; min-width:220px; text-align:center; }
+  .pv-nav { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.34); border-radius:9px;
+    padding:8px 15px; font-size:12.5px; cursor:pointer; transition:background .12s; }
+  .pv-nav:hover { background:rgba(255,255,255,.26); }
+  .pv-close { position:absolute; right:20px; top:18px; }
+  .pv-hint { font-size:11.5px; color:var(--text-tertiary); margin-top:8px; }
 
   /* ============================================================
      BENTO DASHBOARD — 首页复杂网格布局（墨色中性 · 高密度）
@@ -692,6 +719,7 @@ const ICONS = {
   bolt:'<path d="M13 3 5 13h5l-1 8 8-11h-5z"/>',
   sun:'<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M3 12h2M19 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>',
   moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z"/>',
+  eye:'<path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
 };
 function icon(name, size=22, sw=1.7){
   const path = ICONS[name] || ICONS.grid;
@@ -1528,6 +1556,135 @@ function pptOutlineHTML(html){
   return html.map(t=>`<div class="ppt-line"><i></i><span>${esc(t)}</span></div>`).join("");
 }
 
+/* ============================================================
+   视觉预览：用页面内 DOM 复刻每一页的版式（16:9），
+   坐标/字号与 ppBuildDeck 完全一致（1 英寸 = 72 单位），
+   只读取同一份 PPT_TOPICS 文案，不参与 pptx 生成。
+   ============================================================ */
+function pptSlideSpecs(st){
+  const c = pptTopicData(st.topic);
+  const seg = [["暖身导入",.12],["知识点讲解",.30],["体验活动",.28],["案例讨论",.20],["小结与延伸",.10]]
+    .map(([n,r])=>n + "　—　" + Math.max(2, Math.round(st.minutes*r)) + " 分钟");
+  return [
+    { kind:"cover", eyebrow:"心理课 · " + st.grade, title:st.topic, tag:c.tag,
+      meta:[["时长 ",0],[""+st.minutes+" 分钟",1],["　·　页数 ",0],["15 页",1],["　·　配色 ",0],[PPT_THEMES[st.theme].nm,1]] },
+    { en:"OBJECTIVES", title:"这节课，我们想做到三件事", iy:2.55, iz:18, ig:1.1, items:c.goals },
+    { en:"WARM UP", title:"先热个身：三个小问题", iy:2.5, iz:17, ig:1.15,
+      items:["最近一周，你因为「"+st.topic+"」烦过吗？（举手即可，不用说明）","当时身体的哪个部位最有反应？","你已经试过什么办法？管用吗？"],
+      tail:"规则：只说自己，不评价别人；不想说可以跳过。", tailY:6.1 },
+    { en:"KEY 1", title:c.points[0].t, iy:2.55, iz:17, ig:1.15, items:c.points[0].b },
+    { en:"KEY 2", title:c.points[1].t, iy:2.55, iz:17, ig:1.15, items:c.points[1].b },
+    { en:"KEY 3", title:c.points[2].t, iy:2.55, iz:17, ig:1.15, items:c.points[2].b },
+    { en:"ACTIVITY", title:c.act.t, iy:2.5, iz:16, ig:1.0, items:c.act.b },
+    { en:"CASE", title:c.case.t, iy:2.5, iz:16, ig:1.0, items:c.case.b },
+    { en:"SKILLS", title:"三个可以马上用的方法", iy:2.6, iz:18, ig:1.15, items:c.skills },
+    { en:"PRACTICE", title:"一起做一次放松练习", iy:2.45, iz:17, ig:.98, items:c.relax,
+      tail:"全程约 3 分钟 · 可以闭眼，也可以看着桌面", tailY:6.45 },
+    { en:"SUMMARY", title:"带走三句话", iy:2.6, iz:19, ig:1.15, items:c.sum },
+    { en:"HOMEWORK", title:"课后可以做的三件小事", iy:2.55, iz:17, ig:1.15, items:c.ext },
+    { en:"SUPPORT", title:"需要帮助时，可以找谁", iy:2.45, iz:17, ig:.98,
+      items:["学校心理老师 / 班主任（工作日都可以找）","全国心理援助热线 12356（24 小时）","青少年服务热线 12355","紧急危险：110 / 120，先保证安全"],
+      tail:"求助不是软弱，是把问题交给更有能力处理的人。", tailY:6.42, strong:true },
+    { en:"FOR TEACHER", title:"时间分配建议（" + st.minutes + " 分钟）", iy:2.4, iz:16, ig:.8, items:seg,
+      tail:"本页为讲师页，放映时可右键「隐藏幻灯片」。", tailY:6.55 },
+    { kind:"end" },
+  ];
+}
+
+function pvSlideHTML(spec, st, idx){
+  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const W=13.333, H=7.5, M=0.95;
+  const L  = v => (v/W*100).toFixed(2) + "%";
+  const Tp = v => (v/H*100).toFixed(2) + "%";
+  const Wd = v => (v/W*100).toFixed(2) + "%";
+  const Hg = v => (v/H*100).toFixed(2) + "%";
+  const FS = pt => (pt*0.078125).toFixed(3) + "cqw";   /* 1pt = 0.75px，960px 宽 → 0.078125cqw */
+  const ink = "#"+T.ink, ink2 = "#"+T.ink2, ac = "#"+T.accent, soft = "#"+T.soft;
+  const foot = `<div class="pv-foot" style="left:${L(M)};top:${Tp(H-0.55)};width:45%;font-size:${FS(9)};color:${ink2}">心理老师工作台 · 一键出课件</div>`
+    + `<div class="pv-num" style="left:${L(W-M-0.6)};top:${Tp(H-0.57)};width:${Wd(0.6)};font-size:${FS(11)};color:${ink2}">${String(idx+1).padStart(2,"0")}</div>`;
+
+  if(spec.kind==="cover"){
+    return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
+      <div style="position:absolute;left:${L(W-3.6)};top:0;width:${Wd(3.6)};height:100%;background:${soft}"></div>
+      <div style="position:absolute;left:${L(W-3.6)};top:0;width:${Wd(0.14)};height:100%;background:${ac}"></div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(1.55)};width:45%;font-size:${FS(12)};letter-spacing:.2em;color:${ink2}">${esc(spec.eyebrow)}</div>
+      <div class="pv-title" style="left:${L(M)};top:${Tp(2.05)};width:${Wd(W-2*M-1.5)};height:${Hg(1.5)};font-size:${FS(50)};line-height:1.1">${esc(spec.title)}</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(3.7)};width:${Wd(W-2*M-1.5)};font-size:${FS(17)};color:${ink2}">${esc(spec.tag)}</div>
+      <div style="position:absolute;left:${L(M)};top:${Tp(4.65)};width:${Wd(2.2)};height:${Hg(0.05)};background:${ac}"></div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(4.95)};width:${Wd(W-2*M)};font-size:${FS(13)};color:${ink2}">${
+        spec.meta.map(([t,b])=>`<span style="${b?"color:"+ink+";font-weight:700":""}">${esc(t)}</span>`).join("")}</div>
+      ${foot}</div>`;
+  }
+  if(spec.kind==="end"){
+    return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
+      <div style="position:absolute;left:0;top:${Tp(H-1.35)};width:100%;height:${Hg(1.35)};background:${soft}"></div>
+      <div class="pv-title" style="left:${L(M)};top:${Tp(2.4)};width:${Wd(W-2*M)};height:${Hg(1.2)};font-size:${FS(54)}">谢谢</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(3.75)};width:${Wd(W-2*M)};font-size:${FS(18)};color:${ink2}">愿你和你的学生，都被好好接住。</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-0.95)};width:${Wd(W-2*M)};font-size:${FS(12)};color:${ink2}">心理老师工作台 · ${esc(T.nm)}</div>
+    </div>`;
+  }
+
+  const dot = spec.items.map((t,k)=>
+    `<div style="position:absolute;left:${L(M+0.02)};top:${Tp(spec.iy + k*spec.ig + 0.15)};width:${Wd(0.17)};height:${Hg(0.17)};background:${ac}"></div>`).join("");
+  const line = spec.items.map((t,k)=>
+    `<div class="pv-txt" style="left:${L(M+0.45)};top:${Tp(spec.iy + k*spec.ig)};width:${Wd(W-2*M-0.55)};font-size:${FS(spec.iz)};line-height:1.35">${esc(t)}</div>`).join("");
+  const tail = spec.tail
+    ? `<div class="pv-txt" style="left:${L(M)};top:${Tp(spec.tailY)};width:${Wd(W-2*M)};font-size:${FS(spec.strong?12.5:12)};color:${spec.strong?ink:ink2};${spec.strong?"font-weight:800":""}">${esc(spec.tail)}</div>`
+    : "";
+  return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
+    <div style="position:absolute;left:${L(M)};top:${Tp(0.95)};width:${Wd(0.46)};height:${Hg(0.1)};background:${ac}"></div>
+    <div class="pv-en" style="left:${L(M+0.6)};top:${Tp(0.86)};font-size:${FS(10)};color:${ink2}">${esc(spec.en)}</div>
+    <div class="pv-title" style="left:${L(M)};top:${Tp(1.3)};width:${Wd(W-2*M)};height:${Hg(0.85)};font-size:${FS(30)}">${esc(spec.title)}</div>
+    ${dot}${line}${tail}${foot}</div>`;
+}
+
+function pvGridHTML(st){
+  return pptSlideSpecs(st).map((sp,i)=>
+    `<div class="pv-cell" data-pv="${i}" title="第 ${i+1} 页">${pvSlideHTML(sp, st, i)}<span class="no">${String(i+1).padStart(2,"0")}</span></div>`).join("");
+}
+
+/* 放大查看（灯箱）：← → 翻页，Esc 关闭 */
+let pvAt = 0, pvKeyHandler = null;
+function pvOpen(i){
+  pvClose();
+  const st = pptState(), specs = pptSlideSpecs(st);
+  pvAt = Math.max(0, Math.min(specs.length-1, i|0));
+  const box = document.createElement("div");
+  box.className = "pv-overlay"; box.id = "pv-overlay";
+  box.innerHTML = `<button class="pv-nav pv-close" id="pv-close">关闭 Esc</button>
+    <div class="pv-stage" id="pv-stage">${pvSlideHTML(specs[pvAt], st, pvAt)}</div>
+    <div class="pv-bar2">
+      <button class="pv-nav" id="pv-prev">← 上一页</button>
+      <span class="nm" id="pv-nm"></span>
+      <button class="pv-nav" id="pv-next">下一页 →</button>
+    </div>
+    <div class="pv-hint" style="color:#fff;opacity:.75">${esc(PPT_THEMES[st.theme].nm)} · ${esc(st.grade)} · ${st.minutes} 分钟 · 实际字体与间距以导出的 PPTX 为准</div>`;
+  document.body.appendChild(box);
+  const draw = () => {
+    $("#pv-stage").innerHTML = pvSlideHTML(specs[pvAt], st, pvAt);
+    $("#pv-nm").textContent = `第 ${pvAt+1} / ${specs.length} 页 · ${pptOutline(st)[pvAt]}`;
+    $("#pv-prev").disabled = pvAt===0; $("#pv-next").disabled = pvAt===specs.length-1;
+    $("#pv-prev").style.opacity = pvAt===0 ? .45 : 1;
+    $("#pv-next").style.opacity = pvAt===specs.length-1 ? .45 : 1;
+  };
+  draw();
+  $("#pv-prev").onclick = () => { if(pvAt>0){ pvAt--; draw(); } };
+  $("#pv-next").onclick = () => { if(pvAt<specs.length-1){ pvAt++; draw(); } };
+  $("#pv-close").onclick = pvClose;
+  box.addEventListener("click", e => { if(e.target===box) pvClose(); });
+  pvKeyHandler = e => {
+    if(e.key==="Escape") pvClose();
+    else if(e.key==="ArrowLeft" && pvAt>0){ pvAt--; draw(); }
+    else if(e.key==="ArrowRight" && pvAt<specs.length-1){ pvAt++; draw(); }
+  };
+  document.addEventListener("keydown", pvKeyHandler);
+}
+function pvClose(){
+  const el = document.getElementById("pv-overlay");
+  if(el) el.remove();
+  if(pvKeyHandler){ document.removeEventListener("keydown", pvKeyHandler); pvKeyHandler = null; }
+}
+
 function ppBuildDeck(st){
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const c = pptTopicData(st.topic);
@@ -1724,23 +1881,37 @@ function renderPpt(){
         <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
         <div class="ppt-actions">
           <button class="btn" id="ppt-gen">一键生成 PPTX</button>
+          <button class="btn ghost" id="ppt-pv">视觉预览</button>
           <span class="ppt-state" id="ppt-state"></span>
         </div>
         <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
       </div>
-      <div class="ppt-card">
-        <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
-        <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
-        <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${PPT_THEMES[st.theme].nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+      <div class="ppt-side">
+        <div class="ppt-card">
+          <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
+          <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
+          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${PPT_THEMES[st.theme].nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+        </div>
+        <div class="ppt-card">
+          <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
+          <div class="pv-grid" id="pv-grid">${pvGridHTML(st)}</div>
+          <div class="pv-hint">点任意缩略图放大查看，← → 翻页，Esc 关闭</div>
+        </div>
       </div>
     </div>`;
 
   const sync = () => {
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
+    $("#pv-grid").innerHTML = pvGridHTML(st);
     $("#ppt-meta").textContent = `15 页 · 16:9 · ${PPT_THEMES[st.theme].nm} · ${st.notes?"含讲师备注":"不含备注"}`;
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     store.save();
   };
+  $("#pv-grid").addEventListener("click", e => {
+    const cell = e.target.closest(".pv-cell");
+    if(cell) pvOpen(+cell.dataset.pv);
+  });
+  $("#ppt-pv").onclick = () => pvOpen(0);
   $("#ppt-topic").addEventListener("input", e => { st.topic = e.target.value.trim(); sync(); });
   $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.onclick=()=>{
     st.topic = el.dataset.topic; $("#ppt-topic").value = st.topic; sync();
