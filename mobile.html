@@ -286,6 +286,23 @@
   .drawer .ditem.active { background: var(--drawer-active); color:var(--drawer-text); font-weight: 700; }
   .drawer .ditem.active svg { color:var(--drawer-text); }
   .drawer .dfoot { font-size: 11px; opacity:.45; padding: 20px 22px 28px; }
+  .drawer .dfoot.sync-dfoot { opacity:1; }
+  .sync-line { display:flex; align-items:center; gap:7px; font-size:11.5px; color: var(--text-tertiary); }
+  .sync-dot { width:7px; height:7px; border-radius:50%; background:var(--text-tertiary); flex:none; }
+  .sync-dot.ok { background:#5FA97C; }
+  .sync-dot.err { background:var(--danger); }
+  .sync-dot.syncing { background:var(--accent); animation:syncPulse 1s infinite; }
+  @keyframes syncPulse { 50% { opacity:.3; } }
+  .sync-line #syncText { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sync-open { background:none; border:none; color:var(--accent); font-size:11.5px; font-weight:700; cursor:pointer; padding:2px 0; flex:none; }
+  .sync-priv { margin-top:5px; font-size:10.5px; opacity:.62; line-height:1.5; }
+  .sync-hint { margin-top:7px; font-size:11.5px; color:var(--text-tertiary); line-height:1.65; }
+  .sync-hint a { color:var(--accent); font-weight:600; }
+  .sync-state { margin-top:12px; padding:10px 12px; border-radius:10px; background:var(--surface-card);
+    border:1px solid var(--border-input); font-size:12px; color:var(--text-secondary); line-height:1.65; word-break:break-all; }
+  .sync-state.ok { border-color:#BFDCCB; background:#F1F7F3; color:#3F6B52; }
+  .sync-state.err { border-color:#E9C6C0; background:#FBF1EF; color:#A5514A; }
+  .sync-state code { font-family:inherit; font-weight:700; }
 
   /* ---------- modal ---------- */
   .overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--text) 44%, transparent); backdrop-filter: blur(3px); z-index: 60;
@@ -399,7 +416,10 @@
   <div class="dsep"></div>
   <div id="drawerList"></div>
   <div class="dsep"></div>
-  <div class="dfoot" id="drawerFoot">数据只存本机浏览器 · 无云端同步 · 请勿录入真实姓名</div>
+  <div class="dfoot sync-dfoot" id="drawerFoot">
+    <div class="sync-line"><span class="sync-dot" id="syncDot"></span><span id="syncText">数据存本机 · 未开启同步</span><button class="sync-open" id="syncOpen">同步设置</button></div>
+    <div class="sync-priv">个案台账只留本机 · 请勿录入真实姓名</div>
+  </div>
 </aside>
 
 <script>
@@ -583,7 +603,9 @@ const store = {
     CONFIG.modules.forEach(m => d[m.key] = structuredClone(m.seed||[]));
     return d;
   },
-  save(){ localStorage.setItem(CONFIG.storageKey, JSON.stringify(data)); },
+  hasLocal(){ try{ return localStorage.getItem(CONFIG.storageKey) !== null; }catch(e){ return false; } },
+  saveSilent(){ try{ localStorage.setItem(CONFIG.storageKey, JSON.stringify(data)); }catch(e){} },
+  save(){ try{ data.__ts = Date.now(); }catch(e){} this.saveSilent(); if(typeof syncTouch === "function") syncTouch(); },
 };
 let data = store.load();
 let view = "home";            // home | insight | <moduleKey>
@@ -1145,8 +1167,452 @@ $("#avatarInput").onchange = e => {
 function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
 
+
+/* ============================================================
+   跨设备同步（GitHub Gist）
+   · 云端只放除「个案台账」外的模块；Token 与 gist id 只存本机
+   · 三方合并 base / local / remote：能正确处理删除与两端并发编辑
+   ============================================================ */
+const SYNC = {
+  api: (localStorage.getItem("psy-sync-api") || "https://api.github.com").replace(/\/+$/, ""),
+  cfgKey: "psy-sync-cfg-v1:mobile",
+  baseKey: "psy-sync-base-v1:mobile",
+  file: "psy-workbench-data.json",
+  desc: "心理老师工作台 · 跨设备同步（不含个案台账）",
+  skip: ["case"],
+  every: 15000,
+  dev: "手机版",
+  cfg: { token:"", gistId:"", enabled:false, lastRev:"", lastAt:0, login:"" },
+  status: "off",
+  msg: "",
+  busy: false,
+  pending: false,
+  again: false,
+  dirtyRender: false,
+  timer: null,
+  pushTimer: null,
+  queue: Promise.resolve(),
+};
+
+function syncLoadCfg(){
+  try{
+    const raw = localStorage.getItem(SYNC.cfgKey);
+    if(raw) Object.assign(SYNC.cfg, JSON.parse(raw));
+  }catch(e){}
+  if(SYNC.cfg.enabled && SYNC.cfg.token) SYNC.status = "idle";
+}
+function syncSaveCfg(){ try{ localStorage.setItem(SYNC.cfgKey, JSON.stringify(SYNC.cfg)); }catch(e){} }
+function syncJson(raw){ try{ return raw ? JSON.parse(raw) : null; }catch(e){ return null; } }
+function syncEq(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
+function syncContent(p){
+  const modules = {};
+  syncKeys().forEach(k=>{ modules[k] = (p && p.modules && p.modules[k]) || []; });
+  return { modules, meta:(p && p.meta) || {} };
+}
+function syncSameContent(a,b){ return syncEq(syncContent(a), syncContent(b)); }
+function syncClone(v){ return v === undefined ? v : JSON.parse(JSON.stringify(v)); }
+function syncKeys(){ return CONFIG.modules.map(m=>m.key).filter(k=>SYNC.skip.indexOf(k) < 0); }
+function syncTime(t){
+  if(!t) return "";
+  const d = new Date(t), p = n => String(n).padStart(2, "0");
+  return p(d.getHours()) + ":" + p(d.getMinutes());
+}
+
+function syncPayload(){
+  const modules = {};
+  syncKeys().forEach(k=>{ modules[k] = (data[k]||[]).map(x=>syncClone(x)); });
+  const meta = {};
+  Object.keys(data).forEach(k=>{
+    if(k.indexOf("__") === 0 && k !== "__ts") meta[k] = syncClone(data[k]);
+  });
+  return { schema:1, updatedAt:+data.__ts || 0, device:SYNC.dev, modules, meta };
+}
+
+function syncMergeArr(baseArr, localArr, remoteArr, lts, rts){
+  const idx = arr => { const m = new Map(); (arr||[]).forEach(x=>{ if(x && x.id != null) m.set(String(x.id), x); }); return m; };
+  const B = idx(baseArr), L = idx(localArr), R = idx(remoteArr);
+  const order = [], seen = new Set();
+  (localArr||[]).forEach(x=>{
+    if(!x || x.id == null) return;
+    const k = String(x.id);
+    if(R.has(k) || seen.has(k)) return;
+    seen.add(k); order.push(k);
+  });
+  (remoteArr||[]).forEach(x=>{
+    if(!x || x.id == null) return;
+    const k = String(x.id);
+    if(seen.has(k)) return;
+    seen.add(k); order.push(k);
+  });
+  const out = [];
+  order.forEach(k=>{
+    const b = B.get(k), l = L.get(k), r = R.get(k);
+    if(l === undefined && r === undefined) return;
+    if(l === undefined){
+      if(b === undefined || !syncEq(b, r)) out.push(r);
+      return;
+    }
+    if(r === undefined){
+      if(b === undefined || !syncEq(b, l)) out.push(l);
+      return;
+    }
+    if(syncEq(l, r)){ out.push(l); return; }
+    if(b !== undefined && syncEq(l, b)){ out.push(r); return; }
+    if(b !== undefined && syncEq(r, b)){ out.push(l); return; }
+    out.push(rts >= lts ? r : l);
+  });
+  return out;
+}
+
+function syncMergePayloads(base, local, remote){
+  const lts = +(local.updatedAt||0), rts = +(remote.updatedAt||0);
+  const out = { schema:1, updatedAt:Math.max(lts, rts), device:(remote && remote.device) || SYNC.dev, modules:{}, meta:{} };
+  syncKeys().forEach(k=>{
+    out.modules[k] = syncMergeArr(
+      base && base.modules ? base.modules[k] : undefined,
+      local.modules ? local.modules[k] : undefined,
+      remote.modules ? remote.modules[k] : undefined, lts, rts);
+  });
+  const keys = new Set();
+  [local.meta||{}, remote.meta||{}].forEach(o=>Object.keys(o).forEach(k=>keys.add(k)));
+  keys.forEach(k=>{
+    const b = base && base.meta ? base.meta[k] : undefined;
+    const l = local.meta ? local.meta[k] : undefined;
+    const r = remote.meta ? remote.meta[k] : undefined;
+    if(syncEq(l, r)){ if(l !== undefined) out.meta[k] = l; return; }
+    if(b !== undefined && syncEq(l, b)){ if(r !== undefined) out.meta[k] = r; return; }
+    if(b !== undefined && syncEq(r, b)){ if(l !== undefined) out.meta[k] = l; return; }
+    const w = rts >= lts ? r : l;
+    if(w !== undefined) out.meta[k] = w;
+  });
+  return out;
+}
+
+function syncApply(payload){
+  let changed = false;
+  syncKeys().forEach(k=>{
+    const next = payload.modules ? payload.modules[k] : undefined;
+    if(next === undefined) return;
+    if(!syncEq(data[k]||[], next)){ data[k] = next; changed = true; }
+  });
+  Object.keys(payload.meta||{}).forEach(k=>{
+    if(!syncEq(data[k], payload.meta[k])){ data[k] = syncClone(payload.meta[k]); changed = true; }
+  });
+  if(changed){
+    data.__ts = +payload.updatedAt || Date.now();
+    store.saveSilent();
+  }
+  return changed;
+}
+
+function syncIsSeed(){
+  const same = CONFIG.modules.every(m=>{
+    if(SYNC.skip.indexOf(m.key) >= 0) return true;
+    return syncEq(data[m.key]||[], (m.seed||[]).map(x=>syncClone(x)));
+  });
+  return same && !(Array.isArray(data.__trend) && data.__trend.length);
+}
+
+function syncRenderBar(){
+  const dot = document.getElementById("syncDot");
+  const txt = document.getElementById("syncText");
+  if(!dot || !txt) return;
+  const st = !SYNC.cfg.enabled ? "off" : SYNC.status;
+  dot.className = "sync-dot" + (st === "ok" ? " ok" : "") + (st === "err" ? " err" : "") + (st === "syncing" ? " syncing" : "");
+  let label = "数据存本机 · 未开启同步";
+  if(SYNC.cfg.enabled){
+    if(st === "syncing") label = "同步中…";
+    else if(st === "err") label = "同步失败 · 点「同步设置」查看";
+    else label = "已同步 · " + (syncTime(SYNC.cfg.lastAt) || "刚刚");
+  }
+  txt.textContent = label;
+  txt.title = SYNC.msg || label;
+}
+
+function syncPaintState(box){
+  if(!box) return;
+  const c = SYNC.cfg;
+  let cls = "", html = "";
+  if(!c.enabled){
+    html = "尚未连接。填好 Token 后点「连接并同步」，首次会自动在云端建一份副本；另一台设备填同一个 Token 即可对齐。";
+  } else if(SYNC.status === "err"){
+    cls = "err";
+    html = "同步失败：<code>" + esc(SYNC.msg || "未知错误") + "</code><br>确认 Token 仍有 gist 权限、网络可访问 GitHub，然后点「立即同步」重试。";
+  } else if(SYNC.status === "syncing"){
+    html = "正在同步…";
+  } else {
+    cls = "ok";
+    html = "已连接" + (c.login ? (" · <b>" + esc(c.login) + "</b>") : "") +
+      "　云端副本 <code>" + (c.gistId ? (esc(c.gistId.slice(0,12)) + "…") : "—") + "</code><br>" +
+      "上次同步 " + (c.lastAt ? new Date(c.lastAt).toLocaleString() : "—") +
+      "　·　个案台账只留本机，不上传";
+  }
+  box.className = "sync-state" + (cls ? " " + cls : "");
+  box.innerHTML = html;
+}
+
+function syncSetStatus(st, msg){
+  SYNC.status = st;
+  SYNC.msg = msg || "";
+  syncRenderBar();
+  syncPaintState(document.getElementById("sy-state"));
+}
+
+function syncRender(){
+  if(document.getElementById("sync-overlay") || document.querySelector(".overlay")){ SYNC.dirtyRender = true; return; }
+  render();
+}
+
+async function syncApi(path, opts){
+  opts = opts || {};
+  const headers = Object.assign({
+    "Accept": "application/vnd.github+json",
+    "Authorization": "Bearer " + SYNC.cfg.token,
+    "Content-Type": "application/json"
+  }, opts.headers || {});
+  let res;
+  try{ res = await fetch(SYNC.api + path, Object.assign({}, opts, { headers })); }
+  catch(e){ throw new Error("网络不通（" + ((e && e.message) || "fetch 失败") + "）"); }
+  if(res.status === 401) throw new Error("Token 无效或已过期");
+  if(res.status === 403){
+    let t = ""; try{ t = (await res.json()).message || ""; }catch(e){}
+    throw new Error("GitHub 拒绝访问（403）" + (t ? "：" + t : "") + "，请确认 Token 勾选了 gist 权限");
+  }
+  if(res.status === 404) throw new Error("云端副本不存在（404），可能已被删除");
+  if(!res.ok){
+    let t = ""; try{ t = (await res.json()).message || ""; }catch(e){}
+    throw new Error("GitHub 返回 " + res.status + (t ? "：" + t : ""));
+  }
+  if(res.status === 204) return null;
+  return res.json();
+}
+
+async function syncCreate(){
+  const payload = syncPayload();
+  const body = { description: SYNC.desc, public: false };
+  body.files = {};
+  body.files[SYNC.file] = { content: JSON.stringify(payload) };
+  const g = await syncApi("/gists", { method:"POST", body: JSON.stringify(body) });
+  SYNC.cfg.gistId = g.id;
+  SYNC.cfg.lastRev = g.updated_at;
+  SYNC.cfg.lastAt = Date.now();
+  syncSaveCfg();
+  localStorage.setItem(SYNC.baseKey, JSON.stringify(payload));
+  return g;
+}
+
+async function syncFetch(){
+  const g = await syncApi("/gists/" + SYNC.cfg.gistId + "?t=" + Date.now());
+  const f = g && g.files && g.files[SYNC.file];
+  let payload = null;
+  if(f && !f.truncated && f.content) payload = syncJson(f.content);
+  return { gist:g, payload };
+}
+
+async function syncPush(payload){
+  payload.device = SYNC.dev;
+  const body = { files: {} };
+  body.files[SYNC.file] = { content: JSON.stringify(payload) };
+  const g = await syncApi("/gists/" + SYNC.cfg.gistId, { method:"PATCH", body: JSON.stringify(body) });
+  SYNC.cfg.lastRev = g.updated_at;
+  SYNC.cfg.lastAt = Date.now();
+  syncSaveCfg();
+  localStorage.setItem(SYNC.baseKey, JSON.stringify(payload));
+  SYNC.pending = false;
+}
+
+async function syncRound(manual){
+  if(!SYNC.cfg.enabled || !SYNC.cfg.token) return;
+  if(SYNC.busy){ SYNC.again = true; return; }
+  SYNC.busy = true;
+  if(manual) syncSetStatus("syncing", "手动同步中");
+  try{
+    if(!SYNC.cfg.gistId){
+      await syncCreate();
+      syncSetStatus("ok", "已创建云端副本");
+      return;
+    }
+    const { gist, payload } = await syncFetch();
+    if(!payload) throw new Error("云端文件为空或格式异常");
+    if(gist.updated_at === SYNC.cfg.lastRev && !SYNC.pending){
+      SYNC.cfg.lastAt = Date.now();
+      syncSaveCfg();
+      syncSetStatus("ok", "");
+      return;
+    }
+    const base = syncJson(localStorage.getItem(SYNC.baseKey));
+    const local = syncPayload();
+    const merged = syncMergePayloads(base, local, payload);
+    const localChanged = !syncSameContent(merged, local);
+    const remoteDirty = !syncSameContent(merged, payload);
+    if(localChanged) syncApply(merged);
+    if(remoteDirty) await syncPush(merged);
+    else {
+      SYNC.cfg.lastRev = gist.updated_at;
+      SYNC.cfg.lastAt = Date.now();
+      syncSaveCfg();
+      localStorage.setItem(SYNC.baseKey, JSON.stringify(merged));
+      SYNC.pending = false;
+    }
+    if(localChanged) syncRender();
+    syncSetStatus("ok", remoteDirty ? "已把本机改动推到云端" : (localChanged ? "已接收云端改动" : ""));
+  }catch(err){
+    syncSetStatus("err", (err && err.message) ? err.message : String(err));
+  }finally{
+    SYNC.busy = false;
+    if(SYNC.again){ SYNC.again = false; syncRun(false); }
+  }
+}
+
+async function syncConnect(token){
+  const t = String(token||"").trim();
+  if(!t){ syncSetStatus("err", "请先填入 Token"); return; }
+  SYNC.cfg.token = t;
+  syncSaveCfg();
+  syncSetStatus("syncing", "正在验证 Token");
+  try{
+    const u = await syncApi("/user");
+    SYNC.cfg.login = (u && u.login) || "";
+    syncSaveCfg();
+    if(!SYNC.cfg.gistId){
+      const list = await syncApi("/gists?per_page=100");
+      const hit = Array.isArray(list)
+        ? list.find(g=>g && g.description === SYNC.desc && g.files && g.files[SYNC.file])
+        : null;
+      if(hit){ SYNC.cfg.gistId = hit.id; SYNC.cfg.lastRev = ""; syncSaveCfg(); }
+    }
+    if(!SYNC.cfg.gistId){
+      await syncCreate();
+      SYNC.cfg.enabled = true;
+      syncSaveCfg();
+      SYNC.pending = false;
+      syncSchedule();
+      syncSetStatus("ok", "已创建云端副本，另一台设备填同一个 Token 即可");
+      return;
+    }
+    const { gist, payload } = await syncFetch();
+    if(!payload) throw new Error("云端文件内容异常");
+    if(!store.hasLocal() || syncIsSeed()){
+      syncKeys().forEach(k=>{
+        if(payload.modules && payload.modules[k] !== undefined) data[k] = syncClone(payload.modules[k]);
+      });
+      Object.keys(payload.meta||{}).forEach(k=>{ data[k] = syncClone(payload.meta[k]); });
+      data.__ts = +payload.updatedAt || Date.now();
+      store.saveSilent();
+      localStorage.setItem(SYNC.baseKey, JSON.stringify(payload));
+      SYNC.cfg.lastRev = gist.updated_at;
+      SYNC.cfg.lastAt = Date.now();
+      SYNC.cfg.enabled = true;
+      syncSaveCfg();
+      syncSchedule();
+      syncRender();
+      syncSetStatus("ok", "已从云端取回数据");
+      return;
+    }
+    const base = syncJson(localStorage.getItem(SYNC.baseKey));
+    const merged = syncMergePayloads(base, syncPayload(), payload);
+    syncApply(merged);
+    const remoteDirty = !syncSameContent(merged, payload);
+    if(remoteDirty) await syncPush(merged);
+    else {
+      SYNC.cfg.lastRev = gist.updated_at;
+      SYNC.cfg.lastAt = Date.now();
+      syncSaveCfg();
+      localStorage.setItem(SYNC.baseKey, JSON.stringify(merged));
+    }
+    SYNC.cfg.enabled = true;
+    SYNC.pending = false;
+    syncSaveCfg();
+    syncSchedule();
+    syncRender();
+    syncSetStatus("ok", "已合并两端数据");
+  }catch(err){
+    syncSetStatus("err", (err && err.message) ? err.message : String(err));
+  }
+}
+
+function syncRun(manual){
+  SYNC.queue = SYNC.queue.then(()=>syncRound(manual)).catch(()=>{});
+  return SYNC.queue;
+}
+
+function syncTouch(){
+  if(!SYNC.cfg.enabled || !SYNC.cfg.token) return;
+  SYNC.pending = true;
+  clearTimeout(SYNC.pushTimer);
+  SYNC.pushTimer = setTimeout(()=>{ syncRun(false); }, 1400);
+}
+
+function syncSchedule(){
+  clearTimeout(SYNC.timer);
+  if(!SYNC.cfg.enabled || !SYNC.cfg.token) return;
+  SYNC.timer = setTimeout(async ()=>{
+    await syncRun(false);
+    syncSchedule();
+  }, SYNC.every);
+}
+
+function closeSyncModal(){
+  const el = document.getElementById("sync-overlay");
+  if(el) el.remove();
+  if(SYNC.dirtyRender){ SYNC.dirtyRender = false; render(); }
+}
+
+function openSyncModal(){
+  closeSyncModal();
+  const c = SYNC.cfg;
+  const ov = document.createElement("div");
+  ov.className = "overlay";
+  ov.id = "sync-overlay";
+  ov.innerHTML = `
+    <div class="modal">
+      <div class="grab"></div>
+      <h2>跨设备同步</h2>
+      <p class="sub">手机版和电脑版填同一个 Token，改动会自动对齐；个案台账只留在本机，不上传。</p>
+      <div class="field">
+        <label>GitHub Token</label>
+        <input id="sy-token" type="password" autocomplete="off" spellcheck="false"
+          placeholder="ghp_… 或 github_pat_…（只需勾选 gist 权限）" value="${attr(c.token)}">
+        <div class="sync-hint">在 <a href="https://github.com/settings/tokens/new?scopes=gist&amp;description=psy-workbench-sync" target="_blank" rel="noopener">github.com/settings/tokens/new</a> 生成，只勾 <b>gist</b> 一项即可。Token 只存在这台设备。</div>
+      </div>
+      <div class="sync-state" id="sy-state"></div>
+      <div class="modal-actions">
+        <button class="btn" id="sy-connect">连接并同步</button>
+        <button class="btn ghost" id="sy-now">立即同步</button>
+        <button class="link-danger" id="sy-off">断开同步</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  syncPaintState(document.getElementById("sy-state"));
+  ov.addEventListener("click", e=>{ if(e.target === ov) closeSyncModal(); });
+  document.getElementById("sy-connect").onclick = ()=>syncConnect(document.getElementById("sy-token").value);
+  document.getElementById("sy-now").onclick = ()=>syncRun(true);
+  document.getElementById("sy-off").onclick = ()=>{
+    SYNC.cfg.enabled = false;
+    syncSaveCfg();
+    clearTimeout(SYNC.timer);
+    clearTimeout(SYNC.pushTimer);
+    syncSetStatus("off", "已断开，数据仍留在本机");
+    closeSyncModal();
+  };
+}
+
+function syncBoot(){
+  syncLoadCfg();
+  syncRenderBar();
+  if(SYNC.cfg.enabled && SYNC.cfg.token){ syncSchedule(); syncRun(false); }
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState === "visible") syncRun(false);
+  });
+  window.addEventListener("focus", ()=>{ syncRun(false); });
+  window.addEventListener("online", ()=>{ syncRun(false); });
+  const btn = document.getElementById("syncOpen");
+  if(btn) btn.onclick = openSyncModal;
+}
+
 buildDrawer();
 render();
+syncBoot();
 </script>
 </body>
 </html>
