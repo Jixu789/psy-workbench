@@ -375,6 +375,10 @@
   .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
   .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
   .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
+  .ppt-ainote { font-size:12.5px; color:var(--text-secondary); margin-top:8px; line-height:1.7; }
+  .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+  .ppt-ainote .sep { opacity:.3; margin:0 7px; }
+  #ai-state:empty { display:none; }
   .ppt-ref.empty .bar { border-style:dashed; }
   .ppt-ref.busy { opacity:.5; pointer-events:none; }
   .ppt-outline { counter-reset:step; display:flex; flex-direction:column; }
@@ -1746,6 +1750,7 @@ function pptState(){
     data.__ppt = { topic:"情绪管理", grade:"初二", minutes:40, theme:"warm", style:"book", notes:true, toPlan:true };
   }
   if(!data.__ppt.style) data.__ppt.style = "book";
+  if(!data.__ppt.art) data.__ppt.art = "builtin";
   return data.__ppt;
 }
 
@@ -2183,10 +2188,18 @@ const BOOK_NOTE = [
 
 function bookPal(st){
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  PPT_AI.topic = st.topic || "";
+  PPT_AI.use = st.art === "ai";
   return { paper:BOOK.paper, panel:BOOK.panel, strip:BOOK.strip, ink:BOOK.ink,
            sub:BOOK.sub, storm:BOOK.storm, ac:T.accent, ac2:T.accent2, nm:T.nm };
 }
-function bookArt(k){ return (typeof PPT_ART!=="undefined" && PPT_ART[k]) || ""; }
+function bookArt(k){
+  if(PPT_AI.use && PPT_AI.topic){
+    const set = aiArtBank()[PPT_AI.topic];
+    if(set && set[k]) return set[k];
+  }
+  return (typeof PPT_ART!=="undefined" && PPT_ART[k]) || "";
+}
 /* 预折行：CJK 按字宽累加，含行首禁则与孤字回拉（PowerPoint 不会自动做禁则） */
 function bookWrap(s, fs, wIn){
   const maxW = wIn*72;
@@ -2430,6 +2443,210 @@ function ppBuildBook(st){
 }
 
 /* ---------- 页面 ---------- */
+/* ============================================================
+   AI 插画（可选）：按课程主题现场生成 5 张水彩插画
+   · 走标准 images/generations 接口（OpenAI 兼容），Key 只存本机
+   · 不配置 / 调用失败时自动回落内置手绘插画
+   ============================================================ */
+const AI_DEFAULT_STYLE = "水彩手绘儿童绘本插画，米黄纸底色，手绘墨线勾边，柔和的暖橙与草绿色调，角色居中占画面八成，方形构图，背景干净、留少量纸面纹理，整张图只画一个主体，不要出现任何文字、字母、数字、logo、边框或水印";
+const AI_ROLES = [
+  ["bear",   "一只胖胖的棕熊，抱着自己的手臂，表情温和"],
+  ["tangle", "一团缠绕打结的毛线，线头四处散开"],
+  ["rain",   "一只小兔子站在细雨里，耳朵垂下来，神情平静"],
+  ["talk",   "两只小动物面对面坐着说话，一只在认真倾听"],
+  ["circle", "几只小动物手拉手围坐成一圈"]
+];
+const AI_CFG_KEY = "psy-ppt-ai-cfg-v1";
+const AI_ART_KEY = "psy-ppt-ai-art-v1";
+const PPT_AI = {
+  topic: "", use: false, busy: false, last: "",
+  cfg: { base: "https://api.openai.com", key: "", model: "gpt-image-1", size: "1024x1024", style: AI_DEFAULT_STYLE }
+};
+let AI_BANK = null;
+function aiLoadCfg(){
+  try{
+    const j = JSON.parse(localStorage.getItem(AI_CFG_KEY) || "null");
+    if(j && typeof j === "object") PPT_AI.cfg = Object.assign(PPT_AI.cfg, j);
+  }catch(e){}
+  if(!PPT_AI.cfg.style) PPT_AI.cfg.style = AI_DEFAULT_STYLE;
+}
+function aiSaveCfg(){ try{ localStorage.setItem(AI_CFG_KEY, JSON.stringify(PPT_AI.cfg)); }catch(e){} }
+function aiArtBank(){
+  if(!AI_BANK){
+    try{ AI_BANK = JSON.parse(localStorage.getItem(AI_ART_KEY) || "{}") || {}; }catch(e){ AI_BANK = {}; }
+  }
+  return AI_BANK;
+}
+function aiArtPut(topic, set){
+  const b = aiArtBank(); b[topic] = set;
+  Object.keys(b).sort((x,y)=>((b[y] && b[y].at) || 0) - ((b[x] && b[x].at) || 0)).slice(3).forEach(k=>delete b[k]);
+  try{ localStorage.setItem(AI_ART_KEY, JSON.stringify(b)); }
+  catch(e){
+    Object.keys(b).forEach(k=>{ if(k !== topic) delete b[k]; });
+    try{ localStorage.setItem(AI_ART_KEY, JSON.stringify(b)); }catch(e2){}
+  }
+}
+function aiArtClear(topic){
+  const b = aiArtBank(); delete b[topic];
+  try{ localStorage.setItem(AI_ART_KEY, JSON.stringify(b)); }catch(e){}
+}
+function aiReady(){ return !!(PPT_AI.cfg.base && PPT_AI.cfg.key); }
+function aiNoteHTML(st){
+  st = st || pptState();
+  if(PPT_AI.busy) return '<span style="color:var(--accent);font-weight:700">' + esc(PPT_AI.last || "正在生成插画…") + '</span>';
+  const set = aiArtBank()[st.topic || ""];
+  if(!aiReady()) return '未配置接口，当前用内置 5 张水彩插画 · <span class="up" data-ai="open">配置接口</span>';
+  if(!set) return '「' + esc(st.topic || "情绪管理") + '」还没有 AI 插画 · <span class="up" data-ai="gen">按主题生成 5 张</span>';
+  const t = set.at ? new Date(set.at).toLocaleString("zh-CN", { month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "";
+  return (st.art === "ai" ? "正在使用" : "已备好") + '「' + esc(st.topic) + '」AI 插画 5 张' + (t ? " · " + t : "") +
+    ' · <span class="up" data-ai="gen">重新生成</span><span class="sep">|</span><span class="up" data-ai="clear">清除</span>';
+}
+function aiPrompt(desc, topic){
+  return (PPT_AI.cfg.style || AI_DEFAULT_STYLE) + "。画面内容：" + desc +
+    "。这节课的主题是「" + topic + "」，画面只表达这个主题带来的感受，不要写字。";
+}
+function aiImg(src){
+  return new Promise((res, rej)=>{
+    const im = new Image();
+    im.onload = ()=>res(im);
+    im.onerror = ()=>rej(new Error("图片解码失败"));
+    im.src = src;
+  });
+}
+async function aiShrink(src, px){
+  let url = src;
+  if(!/^data:/.test(src)){
+    const r = await fetch(src);
+    if(!r.ok) throw new Error("下载图片失败 " + r.status);
+    url = URL.createObjectURL(await r.blob());
+  }
+  const im = await aiImg(url);
+  const c = document.createElement("canvas"); c.width = c.height = px;
+  const g = c.getContext("2d");
+  g.fillStyle = "#FFFDF4"; g.fillRect(0, 0, px, px);
+  const s = Math.min(im.width, im.height);
+  g.drawImage(im, (im.width - s)/2, (im.height - s)/2, s, s, 0, 0, px, px);
+  const out = c.toDataURL("image/jpeg", 0.78);
+  if(/^blob:/.test(url)) URL.revokeObjectURL(url);
+  return out;
+}
+async function aiCall(prompt){
+  const base = (PPT_AI.cfg.base || "").trim().replace(/\/+$/, "");
+  if(!base) throw new Error("没有填写接口地址");
+  const url = /images\/generations/.test(base) ? base
+    : (/\/v\d+$/.test(base) ? base + "/images/generations" : base + "/v1/images/generations");
+  const model = PPT_AI.cfg.model || "gpt-image-1";
+  const body = { model: model, prompt: prompt, n: 1, size: PPT_AI.cfg.size || "1024x1024" };
+  if(!/^gpt-image/.test(model)) body.response_format = "b64_json";
+  let r;
+  try{
+    r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + PPT_AI.cfg.key },
+      body: JSON.stringify(body)
+    });
+  }catch(err){
+    throw new Error("浏览器连不上接口，多半是这个接口不允许跨域（CORS）；可换成支持浏览器直连的中转地址");
+  }
+  if(!r.ok){
+    let t = ""; try{ t = await r.text(); }catch(e){}
+    throw new Error("接口 " + r.status + (t ? "：" + t.replace(/\s+/g, " ").slice(0, 160) : ""));
+  }
+  let j; try{ j = await r.json(); }catch(e){ throw new Error("接口返回的不是 JSON"); }
+  const d = (j.data && j.data[0]) || null;
+  if(!d) throw new Error("返回里没有图片数据（需要 data[0].b64_json 或 data[0].url）");
+  if(d.b64_json) return "data:image/png;base64," + d.b64_json;
+  if(d.url) return d.url;
+  throw new Error("返回字段不认识");
+}
+async function aiGenerate(st){
+  st = st || pptState();
+  if(PPT_AI.busy) return;
+  if(!aiReady()){ aiOpen(); return; }
+  const topic = (st.topic || "情绪管理").trim();
+  PPT_AI.busy = true;
+  const paint = msg => { PPT_AI.last = msg; if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st); };
+  const out = {};
+  try{
+    for(let i = 0; i < AI_ROLES.length; i++){
+      paint("正在生成 " + (i + 1) + "/" + AI_ROLES.length + "：" + AI_ROLES[i][0] + "…");
+      out[AI_ROLES[i][0]] = await aiShrink(await aiCall(aiPrompt(AI_ROLES[i][1], topic)), 768);
+    }
+    out.at = Date.now();
+    aiArtPut(topic, out);
+    st.art = "ai";
+    if($("#ppt-art")) $("#ppt-art").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o.dataset.v === "ai"));
+    PPT_AI.busy = false; PPT_AI.last = "";
+    if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
+    if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
+    store.save();
+  }catch(err){
+    PPT_AI.busy = false;
+    const msg = err && err.message ? err.message : String(err);
+    if($("#ppt-ainote")) $("#ppt-ainote").innerHTML =
+      '<span style="color:#C2410C">生成失败：' + esc(msg) + '</span> · <span class="up" data-ai="open">检查接口</span>';
+  }
+}
+function aiClear(st){
+  st = st || pptState();
+  aiArtClear(st.topic);
+  st.art = "builtin";
+  if($("#ppt-art")) $("#ppt-art").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o.dataset.v === "builtin"));
+  if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
+  if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
+  store.save();
+}
+function aiOpen(){
+  const old = document.getElementById("ai-overlay"); if(old) old.remove();
+  const c = PPT_AI.cfg;
+  const ov = document.createElement("div");
+  ov.className = "overlay"; ov.id = "ai-overlay";
+  ov.innerHTML =
+    '<div class="modal" style="width:560px">' +
+      '<h3>AI 插画接口</h3>' +
+      '<p class="sub">可选功能：按当前主题现场生成 5 张水彩插画，替换内置手绘。不配置也能正常生成课件。</p>' +
+      '<div class="field"><label>接口地址</label>' +
+        '<input id="ai-base" value="' + attr(c.base) + '" placeholder="https://api.openai.com"/>' +
+        '<div class="sync-hint">填到域名即可，会自动补 <b>/v1/images/generations</b>；也可以直接填完整地址。浏览器直连需要接口允许跨域（CORS）。</div></div>' +
+      '<div class="field"><label>API Key</label>' +
+        '<input id="ai-key" type="password" autocomplete="off" spellcheck="false" value="' + attr(c.key) + '" placeholder="sk-…"/>' +
+        '<div class="sync-hint">只存在这台设备的浏览器里，不随同步上传。建议单独建一个限额的 Key。</div></div>' +
+      '<div class="frow">' +
+        '<div class="field"><label>模型</label><input id="ai-model" value="' + attr(c.model) + '" placeholder="gpt-image-1"/></div>' +
+        '<div class="field"><label>尺寸</label><input id="ai-size" value="' + attr(c.size) + '" placeholder="1024x1024"/></div></div>' +
+      '<div class="field"><label>画风提示词（可改）</label>' +
+        '<textarea id="ai-style" rows="3">' + esc(c.style) + '</textarea></div>' +
+      '<div class="sync-state" id="ai-state"></div>' +
+      '<div class="modal-actions">' +
+        '<button class="btn" id="ai-save">保存</button>' +
+        '<button class="btn ghost" id="ai-gen">保存并生成 5 张</button>' +
+        '<button class="link-danger" id="ai-wipe">清除本主题插画</button></div>' +
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener("click", e => { if(e.target === ov) ov.remove(); });
+  const val = id => (document.getElementById(id).value || "").trim();
+  const read = () => ({
+    base: val("ai-base"), key: val("ai-key"),
+    model: val("ai-model") || "gpt-image-1",
+    size: val("ai-size") || "1024x1024",
+    style: val("ai-style") || AI_DEFAULT_STYLE
+  });
+  document.getElementById("ai-save").onclick = ()=>{ PPT_AI.cfg = read(); aiSaveCfg(); ov.remove(); aiRefresh(); };
+  document.getElementById("ai-gen").onclick = ()=>{
+    PPT_AI.cfg = read(); aiSaveCfg();
+    if(!aiReady()){ document.getElementById("ai-state").textContent = "接口地址和 API Key 都要填"; return; }
+    ov.remove(); aiGenerate(pptState());
+  };
+  document.getElementById("ai-wipe").onclick = ()=>{ ov.remove(); aiClear(pptState()); };
+}
+function aiRefresh(){
+  const st = pptState();
+  if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
+  if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
+  store.save();
+}
+aiLoadCfg();
+
 function renderPpt(){
   const st = pptState();
   const grades = ["初一","初二","初三","高一","高二","高三"];
@@ -2470,6 +2687,10 @@ function renderPpt(){
         </div>
         <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${st.style!=="poster"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
         <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
+        <div class="field"><label>插画 <span class="en">ART</span></label>
+          <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
+          <div class="ppt-ainote" id="ppt-ainote">${aiNoteHTML(st)}</div>
+        </div>
         <label class="ppt-toggle"><input type="checkbox" id="ppt-notes" ${st.notes?"checked":""}/> 生成讲师备注（放映时在「演示者视图」可见）</label>
         <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
         <div class="ppt-actions">
@@ -2497,6 +2718,7 @@ function renderPpt(){
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
     $("#ppt-meta").textContent = `15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
+    if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     store.save();
   };
@@ -2529,6 +2751,18 @@ function renderPpt(){
   $("#ppt-ref-file").onchange = e => { const f = e.target.files && e.target.files[0]; if(f) srLoad(f); e.target.value = ""; };
   $("#ppt-notes").onchange = e => { st.notes = e.target.checked; sync(); };
   $("#ppt-toplan").onchange = e => { st.toPlan = e.target.checked; store.save(); };
+  $("#ppt-art").querySelectorAll(".opt").forEach(el=>el.onclick=()=>{
+    st.art = el.dataset.v;
+    $("#ppt-art").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o===el));
+    if(st.art==="ai" && !aiReady()) aiOpen();
+    sync();
+  });
+  $("#ppt-ainote").addEventListener("click", e=>{
+    const t = e.target.closest("[data-ai]"); if(!t) return;
+    if(t.dataset.ai==="open") aiOpen();
+    if(t.dataset.ai==="gen") aiGenerate(st);
+    if(t.dataset.ai==="clear") aiClear(st);
+  });
   $("#ppt-gen").onclick = () => pptGenerate();
 }
 
