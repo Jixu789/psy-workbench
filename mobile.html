@@ -394,12 +394,15 @@
     color:var(--text-secondary); font-size:12.5px; cursor:pointer; transition:all .12s; }
   .ppt-chip:hover { color:var(--text); border-color:var(--text-tertiary); }
   .ppt-chip.on { background:var(--accent-muted); border-color:var(--accent); color:var(--text); font-weight:700; }
-  .ppt-swatch { display:flex; gap:9px; }
-  .ppt-sw { flex:1; border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px; cursor:pointer; transition:all .12s; text-align:left; }
+  .ppt-swatch { display:flex; flex-wrap:wrap; gap:9px; }
+  .ppt-sw { flex:1 1 calc(50% - 5px); border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px; cursor:pointer; transition:all .12s; text-align:left; }
   .ppt-sw .bar { height:20px; border-radius:7px; margin-bottom:7px; border:1px solid rgba(0,0,0,.06); }
   .ppt-sw .nm { font-size:12.5px; font-weight:700; }
   .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
   .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
+  .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
+  .ppt-ref.empty .bar { border-style:dashed; }
+  .ppt-ref.busy { opacity:.5; pointer-events:none; }
   .ppt-outline { counter-reset:step; display:flex; flex-direction:column; }
   .ppt-line { display:flex; gap:11px; align-items:center; padding:7px 2px; border-bottom:1px dashed var(--border); font-size:12.8px; color:var(--text-secondary); }
   .ppt-line:last-child { border-bottom:none; }
@@ -1271,6 +1274,125 @@ const PPT_THEMES = {
   night: { nm:"星空夜话", bg:"151931", deep:"0A0C1B", card:"232A4A", ink:"F1F4FF", ink2:"A6B2D3", accent:"7A5CFF", accent2:"35E0D2", soft:"232A4A", line:"2F3758", on:"FFFFFF" },
 };
 
+/* ---------- 风格参考：从上传的封面图里取色，生成一套配色 ---------- */
+function srRgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0;
+  if (d > 0) {
+    if (mx === r) h = ((g - b) / d) % 6;
+    else if (mx === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const l = (mx + mn) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  return { h, s, l };
+}
+function srHsl2hex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  s = Math.max(0, Math.min(1, s));
+  l = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  const t = v => Math.round((v + m) * 255).toString(16).padStart(2, "0").toUpperCase();
+  return t(r) + t(g) + t(b);
+}
+/* 把图片缩到 96×96 统计色相分布：按 10° 分桶，用饱和度×中性亮度做权重 */
+function srPalette(img) {
+  const N = 96;
+  const cv = document.createElement("canvas");
+  cv.width = N; cv.height = N;
+  const cx = cv.getContext("2d");
+  cx.drawImage(img, 0, 0, N, N);
+  const px = cx.getImageData(0, 0, N, N).data;
+  const bins = [];
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] < 128) continue;
+    const c = srRgb2hsl(px[i], px[i + 1], px[i + 2]);
+    if (c.l > 0.96 || c.l < 0.06 || c.s < 0.12) continue;   /* 跳过纯白、纯黑、灰 */
+    const k = Math.floor(c.h / 10);
+    const w = c.s * (1 - Math.abs(c.l - 0.5)) + 0.001;
+    const o = bins[k] || (bins[k] = { w: 0, x: 0, y: 0 });
+    o.w += w;
+    o.x += Math.cos(c.h * Math.PI / 180) * w;
+    o.y += Math.sin(c.h * Math.PI / 180) * w;
+  }
+  const list = bins.filter(Boolean).sort((a, b) => b.w - a.w);
+  if (!list.length) return null;
+  const hueOf = o => ((Math.atan2(o.y, o.x) * 180 / Math.PI) + 360) % 360;
+  const h1 = hueOf(list[0]);
+  let h2 = h1 + 45;
+  for (let i = 1; i < list.length; i++) {
+    const hh = hueOf(list[i]);
+    const dd = Math.abs(((hh - h1 + 540) % 360) - 180);
+    if (dd >= 50) { h2 = hh; break; }
+  }
+  return {
+    bg: srHsl2hex(h1, 0.46, 0.965),
+    deep: srHsl2hex(h1, 0.56, 0.09),
+    card: "FFFFFF",
+    ink: srHsl2hex(h1, 0.32, 0.14),
+    ink2: srHsl2hex(h1, 0.18, 0.42),
+    accent: srHsl2hex(h1, 0.74, 0.47),
+    accent2: srHsl2hex(h2, 0.80, 0.62),
+    soft: srHsl2hex(h1, 0.52, 0.90),
+    line: srHsl2hex(h1, 0.38, 0.87),
+    on: "FFFFFF",
+  };
+}
+function srThumb(img) {
+  const w = 128, h = Math.max(1, Math.round(128 * img.height / (img.width || 1)));
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  cv.getContext("2d").drawImage(img, 0, 0, w, h);
+  return cv.toDataURL("image/jpeg", 0.72);
+}
+/* 把上次保存的参考配色写回 PPT_THEMES.custom；没有就删掉这个键 */
+function srApply() {
+  const ref = data.__pptStyleRef;
+  if (!ref || !ref.palette) { delete PPT_THEMES.custom; return false; }
+  PPT_THEMES.custom = Object.assign({ nm: "参考图" }, ref.palette);
+  return true;
+}
+function srLoad(file) {
+  const card = document.querySelector(".ppt-ref");
+  if (!/^image\//.test(file.type || "")) {
+    alert("请上传图片文件（jpg / png / webp）");
+    return;
+  }
+  if (card) card.classList.add("busy");
+  const done = () => { if (card) card.classList.remove("busy"); };
+  const fr = new FileReader();
+  fr.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
+  fr.onload = () => {
+    const img = new Image();
+    img.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
+    img.onload = () => {
+      const pal = srPalette(img);
+      if (!pal) { done(); alert("这张图颜色太少，换一张有颜色的封面图试试"); return; }
+      data.__pptStyleRef = { palette: pal, thumb: srThumb(img) };
+      srApply();
+      pptState().theme = "custom";
+      store.save();
+      render();
+    };
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(file);
+}
+srApply();
+
+
 const PPT_TOPICS = {
   "情绪管理": {
     tag:"情绪没有好坏，先看见，再安放",
@@ -1559,7 +1681,7 @@ function pvOpen(i){
       <span class="nm" id="pv-nm"></span>
       <button class="pv-nav" id="pv-next">下一页 →</button>
     </div>
-    <div class="pv-hint" style="color:#fff;opacity:.75">${esc(PPT_THEMES[st.theme].nm)} · ${esc(st.grade)} · ${st.minutes} 分钟 · 实际字体与间距以导出的 PPTX 为准</div>`;
+    <div class="pv-hint" style="color:#fff;opacity:.75">${esc((PPT_THEMES[st.theme]||PPT_THEMES.warm).nm)} · ${esc(st.grade)} · ${st.minutes} 分钟 · 实际字体与间距以导出的 PPTX 为准</div>`;
   document.body.appendChild(box);
   const draw = () => {
     $("#pv-stage").innerHTML = pvSlideHTML(specs[pvAt], st, pvAt);
@@ -1787,12 +1909,20 @@ function renderPpt(){
     `<div class="ppt-chip ${k===st.topic?"on":""}" data-topic="${attr(k)}">${esc(k)}</div>`).join("");
   const segHTML = (arr, cur, cls) => arr.map(v=>
     `<div class="opt ${String(v)===String(cur)?"on":""}" data-v="${attr(String(v))}">${esc(String(v))}</div>`).join("");
-  const swHTML = Object.keys(PPT_THEMES).map(k=>{
+  const swBase = ["warm","mint","night"].map(k=>{
     const t=PPT_THEMES[k];
     return `<div class="ppt-sw ${k===st.theme?"on":""}" data-theme="${k}">
       <div class="bar" style="background:linear-gradient(90deg,#${t.bg} 0%,#${t.soft} 55%,#${t.accent} 100%)"></div>
       <div class="nm">${esc(t.nm)}</div><div class="dsc">${k==="warm"?"暖米底 · 适合日常":k==="mint"?"浅绿底 · 适合成长主题":"深蓝底 · 适合晚课"}</div></div>`;
   }).join("");
+  const ref = (data.__pptStyleRef && data.__pptStyleRef.thumb) ? data.__pptStyleRef : null;
+  const swHTML = swBase + `<div class="ppt-sw ppt-ref ${ref?"":"empty"} ${st.theme==="custom"?"on":""}" data-theme="custom">
+      <div class="bar" style="${ref
+        ? "background-image:url('" + ref.thumb + "');background-size:cover;background-position:center"
+        : "background:repeating-linear-gradient(45deg,#E9E3DA 0 6px,#F6F2EA 6px 12px)"}"></div>
+      <div class="nm">参考图</div>
+      <div class="dsc">${ref?'点此使用 · <span class="up" data-ref="again">换一张</span>':'<span class="up" data-ref="pick">上传封面取色</span>'}</div>
+    </div><input type="file" id="ppt-ref-file" accept="image/*" hidden />`;
 
   $("#screen").innerHTML = `
     <div class="ppt-wrap">
@@ -1821,7 +1951,7 @@ function renderPpt(){
         <div class="ppt-card">
           <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
           <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
-          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${PPT_THEMES[st.theme].nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
         </div>
         <div class="ppt-card">
           <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
@@ -1834,7 +1964,7 @@ function renderPpt(){
   const sync = () => {
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
-    $("#ppt-meta").textContent = `15 页 · 16:9 · ${PPT_THEMES[st.theme].nm} · ${st.notes?"含讲师备注":"不含备注"}`;
+    $("#ppt-meta").textContent = `15 页 · 16:9 · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     store.save();
   };
@@ -1853,9 +1983,15 @@ function renderPpt(){
   $("#ppt-min").querySelectorAll(".opt").forEach(el=>el.onclick=()=>{
     st.minutes = +el.dataset.v; $("#ppt-min").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o===el)); sync();
   });
-  $("#ppt-theme").querySelectorAll("[data-theme]").forEach(el=>el.onclick=()=>{
-    st.theme = el.dataset.theme; $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
+  $("#ppt-theme").querySelectorAll("[data-theme]").forEach(el=>el.onclick=e=>{
+    const k = el.dataset.theme;
+    if(k==="custom"){
+      const r = data.__pptStyleRef;
+      if(!r || !r.palette || (e.target.closest && e.target.closest("[data-ref='again']"))){ $("#ppt-ref-file").click(); return; }
+    }
+    st.theme = k; $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
   });
+  $("#ppt-ref-file").onchange = e => { const f = e.target.files && e.target.files[0]; if(f) srLoad(f); e.target.value = ""; };
   $("#ppt-notes").onchange = e => { st.notes = e.target.checked; sync(); };
   $("#ppt-toplan").onchange = e => { st.toPlan = e.target.checked; store.save(); };
   $("#ppt-gen").onclick = () => pptGenerate();
@@ -1887,7 +2023,7 @@ function pptAddPlan(st){
   data.plan = data.plan || [];
   const title = `${st.grade} · ${st.topic}（一键生成）`;
   if(data.plan.some(x=>x.title===title)) return false;
-  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / 15 页 / ${PPT_THEMES[st.theme].nm}配色 / PPTX 已生成`, mood:"待上", date:isoToday() });
+  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / 15 页 / ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm}配色 / PPTX 已生成`, mood:"待上", date:isoToday() });
   store.save();
   return true;
 }
