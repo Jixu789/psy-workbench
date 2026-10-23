@@ -432,6 +432,7 @@
   .ppt-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; padding:4px 0; }
   .ppt-toggle input { width:16px; height:16px; accent-color:var(--accent); }
   .ppt-note { font-size:12px; color:var(--text-tertiary); line-height:1.65; margin-top:12px; }
+  .ppt-card .ppt-note .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
   .ppt-side { display:flex; flex-direction:column; gap:16px; }
   @media (max-width:1120px) { .ppt-wrap { grid-template-columns:1fr; } }
 
@@ -1509,7 +1510,219 @@ const PPT_TOPICS = {
   },
 };
 
-function pptTopicData(name){
+/* ============================================================
+   API 配置（可选）：用对话模型写这一课的 15 页文案
+   · 走 OpenAI 兼容的 chat/completions，Key 只存本机浏览器
+   · 不配置 / 调用失败时仍用内置文案
+   ============================================================ */
+const LLM_CFG_KEY = "psy-ppt-llm-v1";
+const LLM_BANK_KEY = "psy-ppt-lesson-v1";
+const LLM_MAX_TOPICS = 8;
+const PPT_LLM = { base:"", model:"", key:"", busy:false, bank:null, sync:null };
+function llmLoadCfg(){
+  try{
+    const j = JSON.parse(localStorage.getItem(LLM_CFG_KEY) || "null");
+    if(j && typeof j === "object"){
+      PPT_LLM.base = String(j.base || "");
+      PPT_LLM.model = String(j.model || "");
+      PPT_LLM.key = String(j.key || "");
+    }
+  }catch(e){}
+}
+function llmSaveCfg(){
+  try{ localStorage.setItem(LLM_CFG_KEY, JSON.stringify({ base:PPT_LLM.base, model:PPT_LLM.model, key:PPT_LLM.key })); }catch(e){}
+}
+function llmBank(){
+  if(!PPT_LLM.bank){
+    try{ PPT_LLM.bank = JSON.parse(localStorage.getItem(LLM_BANK_KEY) || "{}") || {}; }catch(e){ PPT_LLM.bank = {}; }
+  }
+  return PPT_LLM.bank;
+}
+function llmBankSave(){
+  const b = llmBank();
+  Object.keys(b).sort((x,y)=>((b[y] && b[y].at) || 0) - ((b[x] && b[x].at) || 0)).slice(LLM_MAX_TOPICS).forEach(k=>delete b[k]);
+  try{ localStorage.setItem(LLM_BANK_KEY, JSON.stringify(b)); }
+  catch(e){
+    Object.keys(b).sort((x,y)=>((b[y] && b[y].at) || 0) - ((b[x] && b[x].at) || 0)).slice(2).forEach(k=>delete b[k]);
+    try{ localStorage.setItem(LLM_BANK_KEY, JSON.stringify(b)); }catch(e2){}
+  }
+}
+function llmReady(){ return !!(PPT_LLM.base.trim() && PPT_LLM.model.trim() && PPT_LLM.key.trim()); }
+function llmContent(topic){
+  const rec = llmBank()[topic || ""];
+  if(!rec || !rec.data) return null;
+  const d = rec.data;
+  if(!Array.isArray(d.points) || d.points.length !== 3) return null;
+  return d;
+}
+function llmUrl(){
+  const base = (PPT_LLM.base || "").trim().replace(/\/+$/, "");
+  if(!base) throw new Error("没有填写接口地址");
+  if(/chat\/completions$/.test(base)) return base;
+  return /\/v\d+$/.test(base) ? base + "/chat/completions" : base + "/v1/chat/completions";
+}
+function llmModelsUrl(){
+  const base = (PPT_LLM.base || "").trim().replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
+  if(!base) throw new Error("没有填写接口地址");
+  return /\/v\d+$/.test(base) ? base + "/models" : base + "/v1/models";
+}
+function llmPrompt(topic, grade, minutes){
+  return [
+    "你是中国中学心理老师，正在准备一节 " + minutes + " 分钟的「" + topic + "」心理课（" + grade + "）。",
+    "请为这节课写一套课件文案，只输出一个 JSON 对象，不要解释、不要 Markdown 代码块。",
+    "JSON 结构与字数上限（中文按字计）：",
+    '{"tag":"课程标语≤30字","goals":["目标≤26字","...共3条"],',
+    '"hooks":["每页一句引导语≤28字","...共15条，依次对应：封面/本课目标/暖身导入/要点1/要点2/要点3/体验活动/案例讨论/方法/放松练习/小结/课后延伸/求助资源/讲师页/结束页"],',
+    '"points":[{"t":"要点标题≤12字","b":["说明≤28字","说明≤28字","说明≤28字"]},{"t":"...","b":["...","...","..."]},{"t":"...","b":["...","...","..."]}],',
+    '"act":{"t":"活动名≤12字","b":["步骤≤28字","...共4条"]},',
+    '"case":{"t":"案例标题≤12字","b":["...共4条，每条≤28字"]},',
+    '"skills":["可带走的方法≤24字","...共3条"],',
+    '"relax":["放松引导语≤24字","...共4条"],',
+    '"ext":["课后延伸≤24字","...共3条"],',
+    '"sum":["本课小结≤22字","...共3条"]}',
+    "要求：points 必须正好 3 组；act 与 case 的 b 各 4 条；hooks 必须 15 条且不重复标题；语气温和、具体、可操作；不出现学生真实姓名；涉及自伤或危机时，提醒向心理老师和热线求助。"
+  ].join("\n");
+}
+function llmParse(raw){
+  let s = String(raw || "").trim();
+  if(!s) throw new Error("模型没有返回内容（可能被截断，换个模型或再试一次）");
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const a = s.indexOf("{"), b = s.lastIndexOf("}");
+  if(a >= 0 && b > a) s = s.slice(a, b + 1);
+  try{ return JSON.parse(s); }catch(e){ throw new Error("AI 返回的不是合法 JSON，换个模型或再试一次"); }
+}
+function llmCut(v, n){
+  const s = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+function llmList(v, min, max, n){
+  if(!Array.isArray(v)) return null;
+  const arr = v.map(x => typeof x === "string" ? llmCut(x, n) : "").filter(Boolean);
+  if(arr.length < min) return null;
+  const out = arr.slice(0, max);
+  while(out.length < max) out.push(out[out.length - 1]);
+  return out;
+}
+function llmNorm(o, topic){
+  if(!o || typeof o !== "object") throw new Error("AI 返回的内容不是对象，再试一次");
+  const base = pptBase(topic);
+  const goals = llmList(o.goals, 2, 3, 26);
+  if(!goals) throw new Error("AI 返回的「本课目标」不完整，再试一次");
+  if(!Array.isArray(o.points) || o.points.length !== 3) throw new Error("AI 返回的「三个要点」不是 3 组，再试一次");
+  const points = [];
+  for(let i = 0; i < 3; i++){
+    const p = o.points[i] || {};
+    const b = llmList(p.b, 2, 3, 28);
+    if(!b) throw new Error("AI 返回的第 " + (i + 1) + " 个要点内容不完整，再试一次");
+    points.push({ t: llmCut(p.t, 16) || base.points[i].t, b: b });
+  }
+  const pair = (x, dft) => {
+    const b = llmList(x && x.b, 2, 4, 28);
+    if(!b) return null;
+    return { t: llmCut(x && x.t, 16) || dft.t, b: b };
+  };
+  const act = pair(o.act, base.act);
+  const cs = pair(o.case, base.case);
+  if(!act || !cs) throw new Error("AI 返回的「体验活动 / 案例讨论」内容不完整，再试一次");
+  const skills = llmList(o.skills, 2, 3, 24);
+  const relax = llmList(o.relax, 2, 4, 24);
+  const ext = llmList(o.ext, 2, 3, 24);
+  const sum = llmList(o.sum, 2, 3, 22);
+  if(!skills || !relax || !ext || !sum) throw new Error("AI 返回的「方法 / 放松 / 作业 / 小结」有一项不完整，再试一次");
+  const hooks = llmList(o.hooks, 10, 15, 28);
+  return { tag: llmCut(o.tag, 30) || base.tag, goals: goals, points: points, act: act, "case": cs, skills: skills, relax: relax, ext: ext, sum: sum, hooks: hooks };
+}
+async function llmCall(topic, grade, minutes){
+  const url = llmUrl();
+  const head = { "Content-Type": "application/json", "Authorization": "Bearer " + PPT_LLM.key };
+  const mk = extra => Object.assign({
+    model: PPT_LLM.model || "deepseek-chat",
+    messages: [
+      { role: "system", content: "你是中国中学心理老师，只输出严格合法的 JSON，不要代码块，不要多余文字。" },
+      { role: "user", content: llmPrompt(topic, grade, minutes) }
+    ],
+    temperature: 0.7
+  }, extra);
+  let body = mk({ response_format: { type: "json_object" } });
+  let r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
+  let text = ""; try{ text = await r.text(); }catch(e){}
+  if(!r.ok && body.response_format && /response_format|unsupported|unknown|invalid|unrecognized|extra|not support/i.test(text)){
+    body = mk({});
+    r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
+    text = ""; try{ text = await r.text(); }catch(e){}
+  }
+  if(!r.ok) throw new Error(aiHttpMsg(r.status, text, url));
+  let j; try{ j = JSON.parse(text); }catch(e){ throw new Error("接口返回的不是 JSON（可能地址填错，或额度 / 权限不足）"); }
+  if(j.error) throw new Error("接口返回错误：" + (j.error.message || j.error.code || j.error));
+  const m = j.choices && j.choices[0] && j.choices[0].message;
+  let raw = "";
+  if(m){
+    if(typeof m.content === "string") raw = m.content;
+    else if(Array.isArray(m.content)) raw = m.content.map(p => (p && p.text) || "").join("");
+  }
+  return llmNorm(llmParse(raw), topic);
+}
+function llmStatusHTML(){
+  const st = pptState();
+  const topic = st.topic || "";
+  const rec = llmBank()[topic];
+  if(rec && rec.data){
+    const t = rec.at ? new Date(rec.at).toLocaleString("zh-CN", { month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "";
+    return "这一课正在用 AI 文案" + (t ? " · " + t : "") + ' · <span class="up" data-llm="reset">恢复内置</span>';
+  }
+  if(!llmReady()) return "未配置接口，当前用内置文案。填好上面三项后点「AI 写这一课」。";
+  return "当前用内置文案 · 点「AI 写这一课」让模型重写 15 页内容（约 20–60 秒）";
+}
+function llmPaint(msg, cls, extra){
+  const el = $("#llm-state"); if(!el) return;
+  if(!msg){ el.innerHTML = llmStatusHTML(); return; }
+  const c = cls === "err" ? "var(--danger)" : cls === "ok" ? "var(--module-1)" : "var(--text-secondary)";
+  el.innerHTML = '<span style="color:' + c + ';font-weight:700">' + esc(msg) + '</span>' + (extra || "");
+}
+function llmErr(err){
+  const m = (err && err.message) || "未知错误";
+  if(/^连不上接口/.test(m)) return "连不上这个接口：地址可能写错、网络不通，或该服务不允许浏览器跨域（CORS）。中转站的控制台域名（如 sub2api.xxx）通常不给跨域，请换成支持浏览器直连的 API 地址。";
+  return m;
+}
+async function llmTest(){
+  const btn = $("#llm-test");
+  if(!(PPT_LLM.base || "").trim()){ llmPaint("先填接口地址。", "err"); return; }
+  if(btn) btn.disabled = true;
+  llmPaint("正在测试连接…");
+  try{
+    const url = llmModelsUrl();
+    const r = await aiFetch(url, { headers: { "Authorization": "Bearer " + PPT_LLM.key } }, 30000);
+    let text = ""; try{ text = await r.text(); }catch(e){}
+    if(!r.ok) throw new Error(aiHttpMsg(r.status, text, url));
+    llmPaint("接口可用，点「AI 写这一课」开始。", "ok");
+  }catch(err){
+    llmPaint("连接失败：" + llmErr(err), "err");
+  }finally{
+    if($("#llm-test")) $("#llm-test").disabled = false;
+  }
+}
+async function llmWrite(st){
+  if(!llmReady()){ llmPaint("先把接口地址、模型、API Key 三项填好再点。", "err"); return; }
+  if(PPT_LLM.busy) return;
+  PPT_LLM.busy = true;
+  if($("#llm-write")) $("#llm-write").disabled = true;
+  const topic = (st && st.topic) || "心理课";
+  llmPaint("正在写「" + topic + "」的 15 页文案，通常 20–60 秒…");
+  try{
+    const d = await llmCall(topic, (st && st.grade) || "初二", (st && st.minutes) || 40);
+    const b = llmBank(); b[topic] = { at: Date.now(), data: d };
+    llmBankSave();
+    if(PPT_LLM.sync) PPT_LLM.sync();
+    llmPaint("已用 AI 重写这一课的 15 页文案，大纲与视觉预览已同步更新。", "ok", ' · <span class="up" data-llm="reset">恢复内置</span>');
+  }catch(err){
+    llmPaint("生成失败：" + llmErr(err), "err");
+  }finally{
+    PPT_LLM.busy = false;
+    if($("#llm-write")) $("#llm-write").disabled = false;
+  }
+}
+
+function pptBase(name){
   if(PPT_TOPICS[name]) return PPT_TOPICS[name];
   const n = name || "心理课";
   return {
@@ -1527,6 +1740,12 @@ function pptTopicData(name){
     ext:["本周记录 3 次相关情境与自己的反应","找一个信任的人聊 10 分钟","下周带来一个自己试过、有效的办法"],
     sum:["感受是真实的，行为可以重新选择","先说感受，再说请求","需要帮助时，开口不是软弱"],
   };
+}
+
+function pptTopicData(name){
+  const ai = llmContent(name);
+  if(ai) return ai;
+  return pptBase(name);
 }
 
 function pptState(){
@@ -2037,7 +2256,11 @@ function bookWrap(s, fs, wIn){
   return lines.join("\n");
 }
 function bookSize(n){ return n<=2 ? 21 : n===3 ? 19 : n===4 ? 17 : 14.5; }
-function bookHook(i){ return BOOK_HOOK[i] || ""; }
+function bookHook(i){
+  const ai = llmContent(pptState().topic);
+  if(ai && ai.hooks && ai.hooks[i]) return ai.hooks[i];
+  return BOOK_HOOK[i] || "";
+}
 function bookStar(color){
   return `<svg viewBox="0 0 24 24" width="100%" height="100%"><path d="M12 1.6 14.2 9.4 22 12 14.2 14.6 12 22.4 9.8 14.6 2 12 9.8 9.4Z" fill="none" stroke="${color}" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
 }
@@ -2508,6 +2731,7 @@ function aiRefresh(){
   store.save();
 }
 aiLoadCfg();
+llmLoadCfg();
 
 function renderPpt(){
   const st = pptState();
@@ -2571,6 +2795,22 @@ function renderPpt(){
           <div class="pv-grid" id="pv-grid">${pvGridHTML(st)}</div>
           <div class="pv-hint">点任意缩略图放大查看，← → 翻页，Esc 关闭</div>
         </div>
+        <div class="ppt-card" id="ppt-llm-card">
+          <h3>${icon("sun",17)} API 配置 <span class="en">LESSON AI</span></h3>
+          <div class="ppt-note" style="margin:-6px 0 12px">兼容 OpenAI 协议的任意服务（官方 / 中转 / 通义 / DeepSeek），用来写这一课的 15 页文案。</div>
+          <div class="field"><label>接口地址</label><input id="llm-base" style="width:100%" placeholder="https://api.deepseek.com/v1" value="${attr(PPT_LLM.base)}"/></div>
+          <div class="frow">
+            <div class="field"><label>模型</label><input id="llm-model" style="width:100%" placeholder="deepseek-chat" value="${attr(PPT_LLM.model)}"/></div>
+            <div class="field"><label>API Key</label><input id="llm-key" style="width:100%" type="password" placeholder="sk-..." value="${attr(PPT_LLM.key)}"/></div>
+          </div>
+          <div class="ppt-ainote" id="llm-state"></div>
+          <div class="ppt-actions">
+            <button class="btn ghost" id="llm-save">保存</button>
+            <button class="btn ghost" id="llm-test">测试连接</button>
+            <button class="btn" id="llm-write">AI 写这一课</button>
+          </div>
+          <div class="ppt-note">Key 只存在你本机浏览器的存储里，不会上传到任何服务器。公共电脑上用完建议 <span class="up" data-llm="wipe">清空 Key</span>。<br/>不配置时仍用内置文案；AI 写好后可随时「恢复内置」。</div>
+        </div>
       </div>
     </div>`;
 
@@ -2580,6 +2820,7 @@ function renderPpt(){
     $("#ppt-meta").textContent = `15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
     if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
+    if($("#llm-state")) llmPaint();
     store.save();
   };
   $("#pv-grid").addEventListener("click", e => {
@@ -2624,6 +2865,36 @@ function renderPpt(){
     if(t.dataset.ai==="clear") aiClear(st);
   });
   $("#ppt-gen").onclick = () => pptGenerate();
+  PPT_LLM.sync = sync;
+  const llmFill = () => {
+    if($("#llm-base")) $("#llm-base").value = PPT_LLM.base;
+    if($("#llm-model")) $("#llm-model").value = PPT_LLM.model;
+    if($("#llm-key")) $("#llm-key").value = PPT_LLM.key;
+  };
+  const llmRead = () => {
+    PPT_LLM.base = ($("#llm-base").value || "").trim();
+    PPT_LLM.model = ($("#llm-model").value || "").trim();
+    PPT_LLM.key = ($("#llm-key").value || "").trim();
+    llmSaveCfg();
+  };
+  llmFill();
+  llmPaint();
+  $("#llm-save").onclick = () => { llmRead(); llmPaint("已保存（只存本机浏览器）。", "ok"); };
+  $("#llm-test").onclick = async () => { llmRead(); await llmTest(); };
+  $("#llm-write").onclick = async () => { llmRead(); await llmWrite(st); };
+  $("#ppt-llm-card").addEventListener("click", e => {
+    const t = e.target.closest("[data-llm]"); if(!t) return;
+    if(t.dataset.llm === "reset"){
+      const b = llmBank(); delete b[st.topic || ""];
+      try{ localStorage.setItem(LLM_BANK_KEY, JSON.stringify(b)); }catch(err){}
+      sync(); llmPaint("已恢复内置文案。", "ok");
+    }
+    if(t.dataset.llm === "wipe"){
+      PPT_LLM.key = ""; llmSaveCfg();
+      if($("#llm-key")) $("#llm-key").value = "";
+      llmPaint("已清空 Key。", "ok");
+    }
+  });
 }
 
 async function pptGenerate(){
