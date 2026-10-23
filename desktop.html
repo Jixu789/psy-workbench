@@ -586,6 +586,17 @@
     border-radius:9px; padding:8px 16px; font-size:13px; font-weight:700; cursor:pointer; transition:all .15s; }
   .pomo .pctl button:hover { background:rgba(244,243,240,.16); }
   .pomo .pctl button.primary { background:#f4f3f0; color:#232220; border-color:#f4f3f0; }
+  .pomo .pdur { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin:0 0 10px; }
+  .pomo .pdur .pchip { border:1px solid rgba(244,243,240,.18); background:rgba(244,243,240,.05); color:#f4f3f0;
+    border-radius:7px; padding:5px 10px; font-size:11.5px; font-weight:700; cursor:pointer; transition:all .15s; line-height:1.2; }
+  .pomo .pdur .pchip:hover { background:rgba(244,243,240,.14); }
+  .pomo .pdur .pchip.on { background:#e6b877; border-color:#e6b877; color:#232220; }
+  .pomo .pdur .pchip.sub { font-weight:600; opacity:.75; }
+  .pomo .pdur .pcust { display:flex; gap:6px; align-items:center; justify-content:center; width:100%; }
+  .pomo .pdur input { width:62px; border:1px solid rgba(244,243,240,.22); background:rgba(244,243,240,.08); color:#f4f3f0;
+    border-radius:7px; padding:5px 8px; font-size:12px; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
+  .pomo .pdur input::-webkit-outer-spin-button, .pomo .pdur input::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  .pomo .pdur input:focus { outline:none; border-color:#e6b877; }
   .pomo .pstats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
   .pomo .pstats .ps { background:rgba(244,243,240,.06); border-radius:10px; padding:9px 4px; }
   .pomo .pstats .pv { font-size:18px; font-weight:800; letter-spacing:-.02em; }
@@ -793,7 +804,8 @@ const store = {
 let data = store.load();
 let view = "home";
 let searchQ = "";
-let pomo = { running:false, remain:25*60, total:25*60 };   // 番茄钟状态（内存态，跨渲染保留）
+const POMO_DUR0 = (data.__pomoDur>=1 && data.__pomoDur<=180) ? Math.round(data.__pomoDur) : 25;
+let pomo = { running:false, remain:POMO_DUR0*60, total:POMO_DUR0*60 };   // 番茄钟状态（内存态，跨渲染保留）
 let clockTimer = null;                                       // 全局秒级心跳（时钟 + 番茄钟）
 function persist(){ store.save(); render(); }
 function pad2(n){ return String(n).padStart(2,"0"); }
@@ -816,7 +828,7 @@ function heartbeat(){
 function pomoUpdate(){
   const t=$("#pomo-time"); if(t){ t.textContent=`${pad2(Math.floor(pomo.remain/60))}:${pad2(pomo.remain%60)}`; }
   const fg=$("#pomo-fg"); if(fg){ const r=64,c=2*Math.PI*r; fg.style.strokeDashoffset=c*(1-pomo.remain/pomo.total); }
-  const st=$("#pomo-status"); if(st) st.textContent=pomo.running?"专注中":"已暂停";
+  const st=$("#pomo-status"); if(st) st.textContent=pomo.running?"专注中":(pomo.remain===pomo.total?"保持专注":"已暂停");
   const b=$("#pomo-toggle"); if(b) b.textContent=pomo.running?"暂停":"开始";
 }
 function completePomo(){ pomo.running=false; pomo.remain=pomo.total;
@@ -937,16 +949,46 @@ function todoTileHTML(){
     <div class="tk-list">${list}</div></div>`;
 }
 
+/* 番茄钟时长：预设 15/25/45/60 + 自定义 1-180 分钟 */
+function setPomoMin(m){
+  pomo.running=false; pomo.total=m*60; pomo.remain=pomo.total;
+  data.__pomoDur=m; store.save();
+  const pen=$("#pomo-pen"); if(pen) pen.textContent=`POMODORO · ${m} / 5`;
+  renderPomoDur(); pomoUpdate();
+}
+function renderPomoDur(){
+  const row=$("#pomo-dur"); if(!row) return;
+  const cur=Math.round(pomo.total/60), presets=[15,25,45,60];
+  let h=presets.map(m=>`<button class="pchip${cur===m?' on':''}" data-min="${m}">${m}</button>`).join("");
+  if(presets.indexOf(cur)<0) h+=`<button class="pchip on" data-min="${cur}">${cur}</button>`;
+  h+=`<button class="pchip sub" id="pomo-custom">自定义</button>`;
+  row.innerHTML=h;
+  row.querySelectorAll("[data-min]").forEach(b=>b.onclick=()=>setPomoMin(+b.dataset.min));
+  const cu=$("#pomo-custom"); if(cu) cu.onclick=openPomoCustom;
+}
+function openPomoCustom(){
+  const row=$("#pomo-dur"); if(!row) return;
+  row.innerHTML=`<div class="pcust"><input id="pomo-cust-in" type="number" min="1" max="180" step="1" placeholder="1-180" value="${Math.round(pomo.total/60)}"><button class="pchip" id="pomo-cust-ok">确定</button><button class="pchip sub" id="pomo-cust-no">取消</button></div>`;
+  const inp=$("#pomo-cust-in"); inp.focus(); inp.select();
+  const ok=()=>{ const v=Math.round(+inp.value);
+    if(!v || v<1 || v>180){ inp.style.borderColor="#f0a79c"; inp.value=""; inp.focus(); return; }
+    setPomoMin(v); };
+  $("#pomo-cust-ok").onclick=ok;
+  $("#pomo-cust-no").onclick=()=>renderPomoDur();
+  inp.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); ok(); } else if(e.key==="Escape"){ e.preventDefault(); renderPomoDur(); } };
+}
+
 /* 专注番茄钟（暗色炫酷卡 · 实时倒计时） */
 function pomoTileHTML(){
   const p=data.__pomo||{count:0,min:0};
   const r=64,c=2*Math.PI*r,off=c*(1-pomo.remain/pomo.total);
-  return `<div class="pomo b4"><div><div class="pen">POMODORO · 25 / 5</div><div class="pzh">专注番茄钟</div></div>
+  return `<div class="pomo b4"><div><div class="pen" id="pomo-pen">POMODORO · ${Math.round(pomo.total/60)} / 5</div><div class="pzh">专注番茄钟</div></div>
     <div class="ring-wrap"><svg width="150" height="150" viewBox="0 0 150 150">
       <circle cx="75" cy="75" r="${r}" fill="none" stroke="rgba(244,243,240,.14)" stroke-width="7"/>
       <circle id="pomo-fg" cx="75" cy="75" r="${r}" fill="none" stroke="#e6b877" stroke-width="7" stroke-linecap="round"
         stroke-dasharray="${c}" stroke-dashoffset="${off}"/></svg>
       <div class="ptime"><span class="t" id="pomo-time">${pad2(Math.floor(pomo.remain/60))}:${pad2(pomo.remain%60)}</span><span class="s" id="pomo-status">${pomo.running?'专注中':'保持专注'}</span></div></div>
+    <div class="pdur" id="pomo-dur"></div>
     <div class="pctl"><button class="primary" id="pomo-toggle">${pomo.running?'暂停':'开始'}</button><button id="pomo-reset">重置</button></div>
     <div class="pstats"><div class="ps"><div class="pv" id="pomo-count">${p.count}</div><div class="pl">今日番茄</div></div>
       <div class="ps"><div class="pv" id="pomo-min">${p.min}</div><div class="pl">专注分钟</div></div>
@@ -1060,6 +1102,7 @@ function wireHome(){
   // 番茄钟控制
   const tg=$("#pomo-toggle"); if(tg) tg.onclick=()=>{ pomo.running=!pomo.running; pomoUpdate(); };
   const rs=$("#pomo-reset"); if(rs) rs.onclick=()=>{ pomo.running=false; pomo.remain=pomo.total; pomoUpdate(); };
+  if($("#pomo-dur")) renderPomoDur();
 }
 
 /* ---------- INSIGHT ---------- */
