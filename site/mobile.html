@@ -403,6 +403,15 @@
   .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
   .ppt-ainote { font-size:12.5px; color:var(--text-secondary); margin-top:8px; line-height:1.7; }
   .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+  .ai-presets { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; }
+  .ai-presets .up { font-size:12.5px; padding:4px 10px; border:1px solid var(--border); border-radius:999px;
+    color:var(--text-secondary); background:var(--surface-nested); cursor:pointer; }
+  .ai-presets .up:hover { border-color:var(--accent); color:var(--accent); }
+  @media (max-width:520px){
+    #ai-overlay .modal-actions { flex-wrap:wrap; }
+    #ai-overlay .modal-actions .btn { flex:1 1 calc(50% - 5px); }
+    #ai-overlay .modal-actions .link-danger { flex:1 1 100%; }
+  }
   .ppt-ainote .sep { opacity:.3; margin:0 7px; }
   #ai-state:empty { display:none; }
   .ppt-ref.empty .bar { border-style:dashed; }
@@ -2235,7 +2244,7 @@ const AI_CFG_KEY = "psy-ppt-ai-cfg-v1";
 const AI_ART_KEY = "psy-ppt-ai-art-v1";
 const PPT_AI = {
   topic: "", use: false, busy: false, last: "",
-  cfg: { base: "https://api.openai.com", key: "", model: "gpt-image-1", size: "1024x1024", style: AI_DEFAULT_STYLE }
+  cfg: { base: "", key: "", model: "gpt-image-1", size: "1024x1024", style: AI_DEFAULT_STYLE }
 };
 let AI_BANK = null;
 function aiLoadCfg(){
@@ -2305,34 +2314,78 @@ async function aiShrink(src, px){
   if(/^blob:/.test(url)) URL.revokeObjectURL(url);
   return out;
 }
-async function aiCall(prompt){
-  const base = (PPT_AI.cfg.base || "").trim().replace(/\/+$/, "");
+const AI_PRESETS = {
+  silicon:  { base: "https://api.siliconflow.cn",            model: "Kwai-Kolors/Kolors", size: "1024x1024" },
+  bigmodel: { base: "https://open.bigmodel.cn/api/paas/v4",  model: "cogview-3-flash",    size: "1024x1024" },
+  openai:   { base: "https://api.openai.com",                model: "gpt-image-1",        size: "1024x1024" }
+};
+function aiBaseUrl(cfg){
+  const c = cfg || PPT_AI.cfg;
+  const base = (c.base || "").trim().replace(/\/+$/, "");
   if(!base) throw new Error("没有填写接口地址");
-  const url = /images\/generations/.test(base) ? base
+  return /images\/generations/.test(base) ? base
     : (/\/v\d+$/.test(base) ? base + "/images/generations" : base + "/v1/images/generations");
-  const model = PPT_AI.cfg.model || "gpt-image-1";
-  const body = { model: model, prompt: prompt, n: 1, size: PPT_AI.cfg.size || "1024x1024" };
-  if(!/^gpt-image/.test(model)) body.response_format = "b64_json";
-  let r;
+}
+function aiModelsUrl(cfg){
+  const u = aiBaseUrl(cfg).replace(/\/images\/generations.*$/, "");
+  return /\/v\d+$/.test(u) ? u + "/models" : u + "/v1/models";
+}
+function aiNetErr(){
+  return "连不上接口：可能是网络不通，或该接口不允许浏览器跨域（CORS）。"
+    + "国内网络直连 api.openai.com 基本不通，建议点「检查接口」改用硅基流动或智谱";
+}
+async function aiFetch(url, opt, ms){
+  if(navigator.onLine === false) throw new Error("当前设备没有联网，连上网络再试");
+  const ac = new AbortController();
+  const timer = setTimeout(()=>ac.abort(), ms);
   try{
-    r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + PPT_AI.cfg.key },
-      body: JSON.stringify(body)
-    });
+    return await fetch(url, Object.assign({ signal: ac.signal }, opt));
   }catch(err){
-    throw new Error("浏览器连不上接口，多半是这个接口不允许跨域（CORS）；可换成支持浏览器直连的中转地址");
+    if(err && err.name === "AbortError") throw new Error("请求超时（" + Math.round(ms/1000) + " 秒没响应），接口太慢或网络不通");
+    throw new Error(aiNetErr());
+  }finally{ clearTimeout(timer); }
+}
+function aiHttpMsg(status, text, url){
+  const t = (text || "").replace(/\s+/g, " ").slice(0, 180);
+  if(status === 401 || status === 403) return "Key 无效，或这把 Key 没有该模型的权限（" + status + "）" + (t ? "：" + t : "");
+  if(status === 404) return "地址不对，找不到 " + url + (t ? "：" + t : "");
+  if(status === 429) return "请求太频繁或额度不足（429）" + (t ? "：" + t : "");
+  if(status >= 500) return "服务端出错（" + status + "）" + (t ? "：" + t : "");
+  return "接口返回 " + status + (t ? "：" + t : "");
+}
+async function aiCall(prompt){
+  const url = aiBaseUrl();
+  const model = PPT_AI.cfg.model || "gpt-image-1";
+  const head = { "Content-Type": "application/json", "Authorization": "Bearer " + PPT_AI.cfg.key };
+  const mk = extra => Object.assign({ model: model, prompt: prompt, n: 1, size: PPT_AI.cfg.size || "1024x1024" }, extra);
+  let body = mk(/^gpt-image/.test(model) ? {} : { response_format: "b64_json" });
+  let r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
+  let text = "";
+  try{ text = await r.text(); }catch(e){}
+  if(!r.ok && body.response_format && /response_format|unsupported|unknown|invalid|unrecognized|extra/i.test(text)){
+    body = mk({});
+    r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
+    text = ""; try{ text = await r.text(); }catch(e){}
   }
-  if(!r.ok){
-    let t = ""; try{ t = await r.text(); }catch(e){}
-    throw new Error("接口 " + r.status + (t ? "：" + t.replace(/\s+/g, " ").slice(0, 160) : ""));
-  }
-  let j; try{ j = await r.json(); }catch(e){ throw new Error("接口返回的不是 JSON"); }
+  if(!r.ok) throw new Error(aiHttpMsg(r.status, text, url));
+  let j; try{ j = JSON.parse(text); }catch(e){ throw new Error("接口返回的不是 JSON（可能地址填错，或额度/权限不足）"); }
   const d = (j.data && j.data[0]) || null;
-  if(!d) throw new Error("返回里没有图片数据（需要 data[0].b64_json 或 data[0].url）");
+  if(!d){
+    const m = (j.error && (j.error.message || j.error.code)) || "";
+    throw new Error("返回里没有图片数据（需要 data[0].b64_json 或 data[0].url）" + (m ? "：" + m : ""));
+  }
   if(d.b64_json) return "data:image/png;base64," + d.b64_json;
   if(d.url) return d.url;
-  throw new Error("返回字段不认识");
+  throw new Error("返回字段不认识（既没有 b64_json 也没有 url）");
+}
+async function aiTest(cfg){
+  if(!(cfg && cfg.base)) throw new Error("先填接口地址");
+  const url = aiModelsUrl(cfg);
+  const r = await aiFetch(url, { headers: { "Authorization": "Bearer " + (cfg.key || "") } }, 15000);
+  if(r.status === 401 || r.status === 403) return { ok: false, msg: "能连上接口，但这把 Key 无效（" + r.status + "）" };
+  if(r.status === 404) return { ok: true, msg: "能连上接口、跨域已通过（该服务没有 /models 列表，属正常）" };
+  if(!r.ok) return { ok: false, msg: "能连上接口，但返回 " + r.status + "，检查地址与 Key" };
+  return { ok: true, msg: "能连上接口、跨域已通过，可以开始生成" };
 }
 async function aiGenerate(st){
   st = st || pptState();
@@ -2345,7 +2398,12 @@ async function aiGenerate(st){
   try{
     for(let i = 0; i < AI_ROLES.length; i++){
       paint("正在生成 " + (i + 1) + "/" + AI_ROLES.length + "：" + AI_ROLES[i][0] + "…");
-      out[AI_ROLES[i][0]] = await aiShrink(await aiCall(aiPrompt(AI_ROLES[i][1], topic)), 768);
+      const role = AI_ROLES[i][0];
+      try{
+        out[role] = await aiShrink(await aiCall(aiPrompt(AI_ROLES[i][1], topic)), 768);
+      }catch(e){
+        throw new Error(role + " 这张没出来 —— " + (e && e.message ? e.message : e));
+      }
     }
     out.at = Date.now();
     aiArtPut(topic, out);
@@ -2381,8 +2439,11 @@ function aiOpen(){
       '<div class="grab"></div><h2>AI 插画接口</h2>' +
       '<p class="sub">可选功能：按当前主题现场生成 5 张水彩插画，替换内置手绘。不配置也能正常生成课件。</p>' +
       '<div class="field"><label>接口地址</label>' +
-        '<input id="ai-base" value="' + attr(c.base) + '" placeholder="https://api.openai.com"/>' +
-        '<div class="sync-hint">填到域名即可，会自动补 <b>/v1/images/generations</b>；也可以直接填完整地址。浏览器直连需要接口允许跨域（CORS）。</div></div>' +
+        '<div class="ai-presets"><span class="up" data-pre="silicon">硅基流动</span>' +
+          '<span class="up" data-pre="bigmodel">智谱 · 有免费额度</span>' +
+          '<span class="up" data-pre="openai">OpenAI 官方</span></div>' +
+        '<input id="ai-base" value="' + attr(c.base) + '" placeholder="https://api.siliconflow.cn"/>' +
+        '<div class="sync-hint">填域名即可，会自动补 <b>/v1/images/generations</b>，也可以填完整地址。浏览器直连要求接口允许跨域（CORS）。<b>国内网络直连 api.openai.com 基本不通</b>，建议点上面的预置。</div></div>' +
       '<div class="field"><label>API Key</label>' +
         '<input id="ai-key" type="password" autocomplete="off" spellcheck="false" value="' + attr(c.key) + '" placeholder="sk-…"/>' +
         '<div class="sync-hint">只存在这台设备的浏览器里，不随同步上传。建议单独建一个限额的 Key。</div></div>' +
@@ -2394,6 +2455,7 @@ function aiOpen(){
       '<div class="sync-state" id="ai-state"></div>' +
       '<div class="modal-actions">' +
         '<button class="btn" id="ai-save">保存</button>' +
+        '<button class="btn ghost" id="ai-test">测试连接</button>' +
         '<button class="btn ghost" id="ai-gen">保存并生成 5 张</button>' +
         '<button class="link-danger" id="ai-wipe">清除本主题插画</button></div>' +
     '</div>';
@@ -2406,6 +2468,29 @@ function aiOpen(){
     size: val("ai-size") || "1024x1024",
     style: val("ai-style") || AI_DEFAULT_STYLE
   });
+  ov.querySelectorAll("[data-pre]").forEach(el=>{
+    el.onclick = ()=>{
+      const p = AI_PRESETS[el.dataset.pre]; if(!p) return;
+      document.getElementById("ai-base").value = p.base;
+      document.getElementById("ai-model").value = p.model;
+      document.getElementById("ai-size").value = p.size;
+      const st = document.getElementById("ai-state");
+      st.className = "sync-state"; st.style.color = ""; st.textContent = "已填入 " + p.base + "，再填 Key";
+      document.getElementById("ai-key").focus();
+    };
+  });
+  document.getElementById("ai-test").onclick = async ()=>{
+    const st = document.getElementById("ai-state");
+    st.className = "sync-state"; st.style.color = ""; st.textContent = "正在测试…";
+    try{
+      const res = await aiTest(read());
+      st.style.color = res.ok ? "#0F7A5A" : "#C2410C";
+      st.textContent = res.msg;
+    }catch(e){
+      st.style.color = "#C2410C";
+      st.textContent = "测试失败：" + (e && e.message ? e.message : e);
+    }
+  };
   document.getElementById("ai-save").onclick = ()=>{ PPT_AI.cfg = read(); aiSaveCfg(); ov.remove(); aiRefresh(); };
   document.getElementById("ai-gen").onclick = ()=>{
     PPT_AI.cfg = read(); aiSaveCfg();
