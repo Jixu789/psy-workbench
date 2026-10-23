@@ -1266,9 +1266,9 @@ function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
    依赖上方内嵌的 PptxGenJS（离线可用，不联网）
    ============================================================ */
 const PPT_THEMES = {
-  warm:  { nm:"暖阳手账", bg:"FFFBF3", ink:"3B3630", ink2:"6E655A", accent:"EFA23C", soft:"FBEBD5", line:"F0E6D4", on:"FFFFFF" },
-  mint:  { nm:"薄荷成长", bg:"F6FBF8", ink:"2F3A35", ink2:"5F7368", accent:"6FA98B", soft:"E4F2EA", line:"DCEAE2", on:"FFFFFF" },
-  night: { nm:"星空夜话", bg:"1B2233", ink:"EDF1F7", ink2:"A9B6CB", accent:"8FA6C8", soft:"2A3448", line:"33405A", on:"1B2233" },
+  warm:  { nm:"暖阳手账", bg:"FFF7F1", deep:"241611", card:"FFFFFF", ink:"2B1D16", ink2:"7C6A5E", accent:"F1552D", accent2:"FFC24B", soft:"FFE6D3", line:"F4DCC9", on:"FFFFFF" },
+  mint:  { nm:"薄荷成长", bg:"F1FBF6", deep:"08251C", card:"FFFFFF", ink:"14332A", ink2:"5B7C70", accent:"0FA97C", accent2:"5BE0B2", soft:"D5F4E6", line:"C9EDDD", on:"FFFFFF" },
+  night: { nm:"星空夜话", bg:"151931", deep:"0A0C1B", card:"232A4A", ink:"F1F4FF", ink2:"A6B2D3", accent:"7A5CFF", accent2:"35E0D2", soft:"232A4A", line:"2F3758", on:"FFFFFF" },
 };
 
 const PPT_TOPICS = {
@@ -1424,79 +1424,119 @@ function pptOutlineHTML(html){
    ============================================================ */
 function pptSlideSpecs(st){
   const c = pptTopicData(st.topic);
+  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const seg = [["暖身导入",.12],["知识点讲解",.30],["体验活动",.28],["案例讨论",.20],["小结与延伸",.10]]
     .map(([n,r])=>n + "　—　" + Math.max(2, Math.round(st.minutes*r)) + " 分钟");
   return [
     { kind:"cover", eyebrow:"心理课 · " + st.grade, title:st.topic, tag:c.tag,
-      meta:[["时长 ",0],[""+st.minutes+" 分钟",1],["　·　页数 ",0],["15 页",1],["　·　配色 ",0],[PPT_THEMES[st.theme].nm,1]] },
-    { en:"OBJECTIVES", title:"这节课，我们想做到三件事", iy:2.55, iz:18, ig:1.1, items:c.goals },
-    { en:"WARM UP", title:"先热个身：三个小问题", iy:2.5, iz:17, ig:1.15,
-      items:["最近一周，你因为「"+st.topic+"」烦过吗？（举手即可，不用说明）","当时身体的哪个部位最有反应？","你已经试过什么办法？管用吗？"],
-      tail:"规则：只说自己，不评价别人；不想说可以跳过。", tailY:6.1 },
-    { en:"KEY 1", title:c.points[0].t, iy:2.55, iz:17, ig:1.15, items:c.points[0].b },
-    { en:"KEY 2", title:c.points[1].t, iy:2.55, iz:17, ig:1.15, items:c.points[1].b },
-    { en:"KEY 3", title:c.points[2].t, iy:2.55, iz:17, ig:1.15, items:c.points[2].b },
-    { en:"ACTIVITY", title:c.act.t, iy:2.5, iz:16, ig:1.0, items:c.act.b },
-    { en:"CASE", title:c.case.t, iy:2.5, iz:16, ig:1.0, items:c.case.b },
-    { en:"SKILLS", title:"三个可以马上用的方法", iy:2.6, iz:18, ig:1.15, items:c.skills },
-    { en:"PRACTICE", title:"一起做一次放松练习", iy:2.45, iz:17, ig:.98, items:c.relax,
-      tail:"全程约 3 分钟 · 可以闭眼，也可以看着桌面", tailY:6.45 },
-    { en:"SUMMARY", title:"带走三句话", iy:2.6, iz:19, ig:1.15, items:c.sum },
-    { en:"HOMEWORK", title:"课后可以做的三件小事", iy:2.55, iz:17, ig:1.15, items:c.ext },
-    { en:"SUPPORT", title:"需要帮助时，可以找谁", iy:2.45, iz:17, ig:.98,
+      meta:[st.minutes + " 分钟", "15 页", T.nm] },
+    { en:"OBJECTIVES", title:"这节课，我们想做到三件事", items:c.goals, size:21 },
+    { en:"WARM UP", title:"先热个身：三个小问题", items:[
+        "最近一周，你因为「"+st.topic+"」烦过吗？（举手即可，不用说明）",
+        "当时身体的哪个部位最有反应？",
+        "你已经试过什么办法？管用吗？"], size:20, y1:6.42,
+      tail:"规则：只说自己，不评价别人；不想说可以跳过。", tailY:6.62 },
+    { en:"KEY 1", title:c.points[0].t, items:c.points[0].b, size:21 },
+    { en:"KEY 2", title:c.points[1].t, items:c.points[1].b, size:21 },
+    { en:"KEY 3", title:c.points[2].t, items:c.points[2].b, size:21 },
+    { en:"ACTIVITY", title:c.act.t, items:c.act.b, size:18 },
+    { en:"CASE", title:c.case.t, items:c.case.b, size:18 },
+    { en:"SKILLS", title:"三个可以马上用的方法", items:c.skills, size:20 },
+    { en:"PRACTICE", title:"一起做一次放松练习", items:c.relax, size:18, y1:6.42,
+      tail:"全程约 3 分钟 · 可以闭眼，也可以看着桌面", tailY:6.62 },
+    { en:"SUMMARY", title:"带走三句话", items:c.sum, size:24 },
+    { en:"HOMEWORK", title:"课后可以做的三件小事", items:c.ext, size:20 },
+    { en:"SUPPORT", title:"需要帮助时，可以找谁", dark:true, size:18, y1:6.12,
       items:["学校心理老师 / 班主任（工作日都可以找）","全国心理援助热线 12356（24 小时）","青少年服务热线 12355","紧急危险：110 / 120，先保证安全"],
-      tail:"求助不是软弱，是把问题交给更有能力处理的人。", tailY:6.42, strong:true },
-    { en:"FOR TEACHER", title:"时间分配建议（" + st.minutes + " 分钟）", iy:2.4, iz:16, ig:.8, items:seg,
-      tail:"本页为讲师页，放映时可右键「隐藏幻灯片」。", tailY:6.55 },
+      tail:"求助不是软弱，是把问题交给更有能力处理的人。", tailY:6.34 },
+    { en:"FOR TEACHER", title:"时间分配建议（" + st.minutes + " 分钟）", items:seg, size:15.5, y1:6.02,
+      tail:"本页为讲师页，放映时可右键「隐藏幻灯片」。", tailY:6.28 },
     { kind:"end" },
   ];
 }
 
 function pvSlideHTML(spec, st, idx){
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
-  const W=13.333, H=7.5, M=0.95;
+  const W=13.333, H=7.5, M=0.78;
   const L  = v => (v/W*100).toFixed(2) + "%";
   const Tp = v => (v/H*100).toFixed(2) + "%";
   const Wd = v => (v/W*100).toFixed(2) + "%";
   const Hg = v => (v/H*100).toFixed(2) + "%";
-  const FS = pt => (pt*0.078125).toFixed(3) + "cqw";   /* 1pt = 0.75px，960px 宽 → 0.078125cqw */
-  const ink = "#"+T.ink, ink2 = "#"+T.ink2, ac = "#"+T.accent, soft = "#"+T.soft;
-  const foot = `<div class="pv-foot" style="left:${L(M)};top:${Tp(H-0.55)};width:45%;font-size:${FS(9)};color:${ink2}">心理老师工作台 · 一键出课件</div>`
-    + `<div class="pv-num" style="left:${L(W-M-0.6)};top:${Tp(H-0.57)};width:${Wd(0.6)};font-size:${FS(11)};color:${ink2}">${String(idx+1).padStart(2,"0")}</div>`;
+  const FS = pt => (pt*0.104167).toFixed(3) + "cqw";   /* 1pt = 1/72in，画面宽 13.333in ≈ 960pt */
+  const BD = pt => (pt*0.104167).toFixed(3) + "cqw";
+  const RAD = v => (v/W*100).toFixed(3) + "cqw";      /* 圆角按英寸换算，须用 cqw 而非 % */   /* 线宽同样按 pt 换算，缩略图/灯箱一致 */
+  const cl = { bg:"#"+T.bg, deep:"#"+T.deep, card:"#"+T.card, ink:"#"+T.ink, ink2:"#"+T.ink2,
+               ac:"#"+T.accent, ac2:"#"+T.accent2, soft:"#"+T.soft, line:"#"+T.line };
+  const num = String(idx+1).padStart(2,"0");
 
   if(spec.kind==="cover"){
-    return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
-      <div style="position:absolute;left:${L(W-3.6)};top:0;width:${Wd(3.6)};height:100%;background:${soft}"></div>
-      <div style="position:absolute;left:${L(W-3.6)};top:0;width:${Wd(0.14)};height:100%;background:${ac}"></div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(1.55)};width:45%;font-size:${FS(12)};letter-spacing:.2em;color:${ink2}">${esc(spec.eyebrow)}</div>
-      <div class="pv-title" style="left:${L(M)};top:${Tp(2.05)};width:${Wd(W-2*M-1.5)};height:${Hg(1.5)};font-size:${FS(50)};line-height:1.1">${esc(spec.title)}</div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(3.7)};width:${Wd(W-2*M-1.5)};font-size:${FS(17)};color:${ink2}">${esc(spec.tag)}</div>
-      <div style="position:absolute;left:${L(M)};top:${Tp(4.65)};width:${Wd(2.2)};height:${Hg(0.05)};background:${ac}"></div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(4.95)};width:${Wd(W-2*M)};font-size:${FS(13)};color:${ink2}">${
-        spec.meta.map(([t,b])=>`<span style="${b?"color:"+ink+";font-weight:700":""}">${esc(t)}</span>`).join("")}</div>
-      ${foot}</div>`;
+    const ring = k => { const d = 4.9 - k*0.55;
+      return `<div style="position:absolute;left:${L(W-1.15-d/2)};top:${Tp(-0.75-d/2)};width:${Wd(d)};height:${Hg(d)};
+        border-radius:50%;border:${BD(3.2-k*0.8)} solid ${cl.ac2};opacity:${(.30-k*.08).toFixed(2)}"></div>`; };
+    return `<div class="pv-slide" style="background:${cl.deep};color:#fff">
+      ${ring(0)}${ring(1)}${ring(2)}
+      <div style="position:absolute;left:0;top:${Tp(H-1.55)};width:100%;height:${Hg(1.55)};background:${cl.ac}"></div>
+      <div style="position:absolute;left:${L(M)};top:${Tp(1.55)};width:${Wd(2.6)};height:${Hg(0.42)};border-radius:${RAD(0.21)};border:${BD(1.2)} solid rgba(255,255,255,.55)"></div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(1.55)};width:${Wd(2.6)};height:${Hg(0.42)};display:flex;align-items:center;justify-content:center;font-size:${FS(12.5)};letter-spacing:.14em;color:#fff">${esc(spec.eyebrow)}</div>
+      <div class="pv-title" style="left:${L(M)};top:${Tp(2.15)};width:${Wd(W-2*M-0.8)};height:${Hg(1.55)};font-size:${FS(62)};line-height:1.06;color:#fff">${esc(spec.title)}</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(3.86)};width:${Wd(W-2*M-1.4)};font-size:${FS(17)};color:${cl.ac2}">${esc(spec.tag)}</div>
+      <div style="position:absolute;left:${L(M)};top:${Tp(4.72)};width:${Wd(1.0)};height:${Hg(0.08)};background:${cl.ac2}"></div>
+      <div class="pv-txt" style="left:${L(W-2.55)};top:${Tp(3.18)};width:${Wd(1.2)};font-size:${FS(40)};line-height:1;color:${cl.ac2};transform:rotate(12deg)">★</div>
+      <div style="position:absolute;left:${L(W-1.62)};top:${Tp(4.02)};width:${Wd(0.26)};height:${Hg(0.26)};border-radius:50%;background:${cl.ac2}"></div>
+      <div style="position:absolute;left:${L(W-1.08)};top:${Tp(3.58)};width:${Wd(0.14)};height:${Hg(0.14)};border-radius:50%;background:#fff;opacity:.7"></div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-1.02)};width:${Wd(1.55)};height:${Hg(0.46)};display:flex;align-items:center;justify-content:center;font-size:${FS(11.5)};font-weight:800;color:${cl.ac};background:#fff;border-radius:${RAD(0.23)}">${esc(spec.meta[0])}</div>
+      <div class="pv-txt" style="left:${L(M+1.7)};top:${Tp(H-1.02)};width:${Wd(1.35)};height:${Hg(0.46)};display:flex;align-items:center;justify-content:center;font-size:${FS(11.5)};font-weight:800;color:${cl.ac};background:#fff;border-radius:${RAD(0.23)}">${esc(spec.meta[1])}</div>
+      <div class="pv-txt" style="left:${L(M+3.2)};top:${Tp(H-1.02)};width:${Wd(1.9)};height:${Hg(0.46)};display:flex;align-items:center;justify-content:center;font-size:${FS(11.5)};font-weight:800;color:${cl.ac};background:#fff;border-radius:${RAD(0.23)}">${esc(spec.meta[2])}</div>
+    </div>`;
   }
   if(spec.kind==="end"){
-    return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
-      <div style="position:absolute;left:0;top:${Tp(H-1.35)};width:100%;height:${Hg(1.35)};background:${soft}"></div>
-      <div class="pv-title" style="left:${L(M)};top:${Tp(2.4)};width:${Wd(W-2*M)};height:${Hg(1.2)};font-size:${FS(54)}">谢谢</div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(3.75)};width:${Wd(W-2*M)};font-size:${FS(18)};color:${ink2}">愿你和你的学生，都被好好接住。</div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-0.95)};width:${Wd(W-2*M)};font-size:${FS(12)};color:${ink2}">心理老师工作台 · ${esc(T.nm)}</div>
+    return `<div class="pv-slide" style="background:${cl.deep};color:#fff">
+      <div style="position:absolute;left:${L(W-5.2)};top:${Tp(0.9)};width:${Wd(4.25)};height:${Hg(4.25)};border-radius:50%;border:${BD(2.2)} solid ${cl.ac2};opacity:.22"></div>
+      <div style="position:absolute;left:${L(W-4.2)};top:${Tp(1.9)};width:${Wd(2.25)};height:${Hg(2.25)};border-radius:50%;background:${cl.ac};opacity:.22"></div>
+      <div style="position:absolute;left:${L(M)};top:${Tp(2.2)};width:${Wd(5.0)};height:${Hg(0.1)};background:${cl.ac2}"></div>
+      <div class="pv-title" style="left:${L(M)};top:${Tp(2.5)};width:${Wd(W-2*M)};height:${Hg(1.62)};font-size:${FS(76)};line-height:1.15;color:#fff">谢谢</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(4.25)};width:${Wd(W-2*M-1.2)};font-size:${FS(19)};color:${cl.ac2}">愿你和你的学生，都被好好接住。</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-0.92)};width:${Wd(W-2*M)};font-size:${FS(12)};color:#9FB0CE">心理老师工作台 · ${esc(T.nm)}</div>
     </div>`;
   }
 
-  const dot = spec.items.map((t,k)=>
-    `<div style="position:absolute;left:${L(M+0.02)};top:${Tp(spec.iy + k*spec.ig + 0.15)};width:${Wd(0.17)};height:${Hg(0.17)};background:${ac}"></div>`).join("");
-  const line = spec.items.map((t,k)=>
-    `<div class="pv-txt" style="left:${L(M+0.45)};top:${Tp(spec.iy + k*spec.ig)};width:${Wd(W-2*M-0.55)};font-size:${FS(spec.iz)};line-height:1.35">${esc(t)}</div>`).join("");
+  const dark = !!spec.dark;
+  const bg   = dark ? cl.deep : cl.bg;
+  const ink  = dark ? "#FFFFFF" : cl.ink;
+  const ink2 = dark ? "#B9C6DD" : cl.ink2;
+  const cardBg = dark ? "rgba(255,255,255,.08)" : cl.card;
+  const cardLn = dark ? "rgba(255,255,255,.18)" : cl.line;
+  const y0 = spec.y0 || 2.52, y1 = spec.y1 || 6.72;
+  const n = spec.items.length, gap = 0.15;
+  const h = (y1 - y0 - gap*(n-1)) / n;
+  const cards = spec.items.map((t,i)=>{
+    const y = y0 + i*(h+gap);
+    const bd = Math.min(0.5, h-0.16);
+    return `<div style="position:absolute;left:${L(M)};top:${Tp(y)};width:${Wd(W-2*M)};height:${Hg(h)};background:${cardBg};border:${BD(0.9)} solid ${cardLn};border-radius:${RAD(0.14)}"></div>
+      <div style="position:absolute;left:${L(M+0.22)};top:${Tp(y+(h-bd)/2)};width:${Wd(bd)};height:${Hg(bd)};background:${cl.ac};border-radius:${RAD(0.12)}"></div>
+      <div class="pv-txt" style="left:${L(M+0.22)};top:${Tp(y+(h-bd)/2)};width:${Wd(bd)};height:${Hg(bd)};display:flex;align-items:center;justify-content:center;font-size:${FS(12)};font-weight:800;color:#fff">${String(i+1).padStart(2,"0")}</div>
+      <div class="pv-txt" style="left:${L(M+0.92)};top:${Tp(y)};width:${Wd(W-2*M-1.15)};height:${Hg(h)};display:flex;align-items:center;font-size:${FS(spec.size||18)};line-height:1.45;color:${ink}">${esc(t)}</div>`;
+  }).join("");
   const tail = spec.tail
-    ? `<div class="pv-txt" style="left:${L(M)};top:${Tp(spec.tailY)};width:${Wd(W-2*M)};font-size:${FS(spec.strong?12.5:12)};color:${spec.strong?ink:ink2};${spec.strong?"font-weight:800":""}">${esc(spec.tail)}</div>`
+    ? `<div class="pv-txt" style="left:${L(M)};top:${Tp(spec.tailY)};width:${Wd(W-2*M)};font-size:${FS(12.5)};font-weight:800;color:${dark?"#FFFFFF":cl.ac}">${esc(spec.tail)}</div>`
     : "";
-  return `<div class="pv-slide" style="background:#${T.bg};color:${ink}">
-    <div style="position:absolute;left:${L(M)};top:${Tp(0.95)};width:${Wd(0.46)};height:${Hg(0.1)};background:${ac}"></div>
-    <div class="pv-en" style="left:${L(M+0.6)};top:${Tp(0.86)};font-size:${FS(10)};color:${ink2}">${esc(spec.en)}</div>
-    <div class="pv-title" style="left:${L(M)};top:${Tp(1.3)};width:${Wd(W-2*M)};height:${Hg(0.85)};font-size:${FS(30)}">${esc(spec.title)}</div>
-    ${dot}${line}${tail}${foot}</div>`;
+  const deco = dark
+    ? `<div style="position:absolute;left:${L(W-2.6)};top:${Tp(-1.9)};width:${Wd(4.0)};height:${Hg(4.0)};border-radius:50%;background:${cl.ac};opacity:.13"></div>`
+    : `<div style="position:absolute;left:${L(W-3.3)};top:${Tp(-2.3)};width:${Wd(4.9)};height:${Hg(4.9)};border-radius:50%;background:${cl.soft}"></div>
+       <div style="position:absolute;left:${L(W-1.865)};top:${Tp(1.035)};width:${Wd(0.85)};height:${Hg(0.85)};border-radius:50%;border:${BD(1.4)} solid ${cl.ac2};opacity:.55"></div>
+       <div style="position:absolute;left:${L(W-1.62)};top:${Tp(1.28)};width:${Wd(0.36)};height:${Hg(0.36)};border-radius:50%;background:${cl.ac}"></div>`;
+  return `<div class="pv-slide" style="background:${bg};color:${ink}">
+    <div style="position:absolute;left:0;top:0;width:${Wd(0.14)};height:100%;background:${cl.ac}"></div>
+    ${deco}
+    <div style="position:absolute;left:${L(M)};top:${Tp(0.62)};width:${Wd(1.18)};height:${Hg(0.38)};border-radius:${RAD(0.19)};background:${cl.ac}"></div>
+    <div class="pv-txt" style="left:${L(M)};top:${Tp(0.62)};width:${Wd(1.18)};height:${Hg(0.38)};display:flex;align-items:center;justify-content:center;font-size:${FS(9.5)};letter-spacing:.1em;font-weight:800;color:#fff">${esc(spec.en)}</div>
+    <div class="pv-title" style="left:${L(M)};top:${Tp(1.12)};width:${Wd(W-2*M)};height:${Hg(0.9)};font-size:${FS(33)};line-height:1.15;color:${ink}">${esc(spec.title)}</div>
+    <div style="position:absolute;left:${L(M)};top:${Tp(2.1)};width:${Wd(0.9)};height:${Hg(0.1)};background:${cl.ac2}"></div>
+    <div style="position:absolute;left:${L(M+1.05)};top:${Tp(2.14)};width:${Wd(W-2*M-1.05)};height:${Hg(0.02)};background:${dark?"rgba(255,255,255,.18)":cl.line}"></div>
+    ${cards}${tail}
+    <div class="pv-foot" style="left:${L(M)};top:${Tp(H-0.5)};width:45%;font-size:${FS(9)};color:${ink2}">心理老师工作台 · 一键出课件</div>
+    <div class="pv-num" style="left:${L(W-M-0.6)};top:${Tp(H-0.52)};width:${Wd(0.6)};font-size:${FS(11)};color:${ink2}">${num}</div>
+  </div>`;
 }
 
 function pvGridHTML(st){
@@ -1550,69 +1590,104 @@ function ppBuildDeck(st){
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const c = pptTopicData(st.topic);
   const F = "微软雅黑";
-  const W = 13.333, H = 7.5, M = 0.95;
+  const W = 13.333, H = 7.5, M = 0.78;
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.title = st.topic + " · " + st.grade;
   pptx.author = "心理老师工作台";
+  const S = pptx.ShapeType;
 
-  const newSlide = () => { const s = pptx.addSlide(); s.background = { color:T.bg }; return s; };
-  const foot = (s, i) => {
-    s.addText("心理老师工作台 · 一键出课件", { x:M, y:H-0.52, w:6, h:0.25, fontFace:F, fontSize:9, color:T.ink2 });
-    s.addText(String(i).padStart(2,"0"), { x:W-M-0.6, y:H-0.55, w:0.6, h:0.3, fontFace:F, fontSize:11, color:T.ink2, align:"right" });
+  const newSlide = bg => { const s = pptx.addSlide(); s.background = { color: bg || T.bg }; return s; };
+  const sh = (s, type, x, y, w, h, fill, line, rad) => {
+    const o = { x, y, w, h, fill:{ color:(fill||T.accent) }, line:{ color:(line||fill||T.accent) } };
+    if(rad) o.rectRadius = rad;
+    s.addShape(type, o);
   };
-  const head = (s, en, title) => {
-    s.addShape(pptx.ShapeType.rect, { x:M, y:0.95, w:0.46, h:0.1, fill:{ color:T.accent }, line:{ color:T.accent } });
-    s.addText(en, { x:M+0.6, y:0.85, w:6, h:0.28, fontFace:F, fontSize:10, color:T.ink2, charSpacing:2 });
-    s.addText(title, { x:M, y:1.3, w:W-2*M, h:0.85, fontFace:F, fontSize:30, bold:true, color:T.ink, valign:"middle" });
+  const foot = (s, i, dark) => {
+    s.addText("心理老师工作台 · 一键出课件", { x:M, y:H-0.5, w:6, h:0.25, fontFace:F, fontSize:9, color:dark?"B9C6DD":T.ink2 });
+    s.addText(String(i).padStart(2,"0"), { x:W-M-0.6, y:H-0.52, w:0.6, h:0.3, fontFace:F, fontSize:11, bold:true, color:dark?"FFFFFF":T.ink2, align:"right" });
   };
-  const items = (s, list, y0, size, gap) => {
+  const head = (s, en, title, num, dark) => {
+    sh(s, S.rect, 0, 0, 0.14, H, T.accent, T.accent);
+    sh(s, S.roundRect, M, 0.62, 1.18, 0.38, T.accent, T.accent, 0.19);
+    s.addText(en, { x:M, y:0.62, w:1.18, h:0.38, fontFace:F, fontSize:9.5, bold:true, color:"FFFFFF", align:"center", valign:"middle", charSpacing:1 });
+    s.addText(title, { x:M, y:1.12, w:W-2*M, h:0.9, fontFace:F, fontSize:33, bold:true, color:dark?"FFFFFF":T.ink, valign:"middle" });
+    sh(s, S.rect, M, 2.1, 0.9, 0.1, T.accent2, T.accent2);
+    s.addShape(S.rect, { x:M+1.05, y:2.14, w:W-2*M-1.05, h:0.02,
+      fill:{ color: dark ? "FFFFFF" : T.line, transparency: dark ? 82 : 0 }, line:{ color: dark ? "FFFFFF" : T.line, transparency:100 } });
+  };
+  const deco = (s, dark) => {
+    if(dark){
+      s.addShape(S.ellipse, { x:W-2.6, y:-1.9, w:4.0, h:4.0, fill:{ color:T.accent, transparency:87 }, line:{ color:T.accent, transparency:100 } });
+    } else {
+      s.addShape(S.ellipse, { x:W-3.3, y:-2.3, w:4.9, h:4.9, fill:{ color:T.soft }, line:{ color:T.soft } });
+      s.addShape(S.ellipse, { x:W-1.865, y:1.035, w:0.85, h:0.85, fill:{ color:T.accent2, transparency:100 }, line:{ color:T.accent2, width:1.4, transparency:45 } });
+      s.addShape(S.ellipse, { x:W-1.62, y:1.28, w:0.36, h:0.36, fill:{ color:T.accent }, line:{ color:T.accent, transparency:100 } });
+    }
+  };
+  const cards = (s, list, y0, y1, size, dark) => {
+    const n = list.length, gap = 0.15;
+    const h = (y1 - y0 - gap*(n-1)) / n;
+    const bd = Math.min(0.5, h-0.16);
     list.forEach((t,i)=>{
-      const y = y0 + i*(gap||1.02);
-      s.addShape(pptx.ShapeType.rect, { x:M+0.02, y:y+0.15, w:0.17, h:0.17, fill:{ color:T.accent }, line:{ color:T.accent } });
-      s.addText(t, { x:M+0.45, y, w:W-2*M-0.55, h:(gap||1.02)-0.12, fontFace:F, fontSize:size||17, color:T.ink, lineSpacing:size*1.6, valign:"top" });
+      const y = y0 + i*(h+gap);
+      s.addShape(S.roundRect, { x:M, y, w:W-2*M, h, rectRadius:0.14,
+        fill:{ color: dark ? "FFFFFF" : T.card, transparency: dark ? 92 : 0 },
+        line:{ color: dark ? "FFFFFF" : T.line, width:0.9, transparency: dark ? 82 : 0 } });
+      sh(s, S.roundRect, M+0.22, y+(h-bd)/2, bd, bd, T.accent, T.accent, 0.12);
+      s.addText(String(i+1).padStart(2,"0"), { x:M+0.22, y:y+(h-bd)/2, w:bd, h:bd, fontFace:F, fontSize:12, bold:true, color:"FFFFFF", align:"center", valign:"middle" });
+      s.addText(t, { x:M+0.92, y, w:W-2*M-1.15, h, fontFace:F, fontSize:size, color: dark ? "FFFFFF" : T.ink, valign:"middle", lineSpacing:size*1.45 });
     });
   };
+  const tail = (s, txt, y, dark) => s.addText(txt, { x:M, y, w:W-2*M, h:0.34, fontFace:F, fontSize:12.5, bold:true, color: dark ? "FFFFFF" : T.accent });
   const note = (s, txt) => { if(st.notes) s.addNotes(txt); };
 
-  /* 01 封面 */
+  /* 01 封面（整版深色 · 同心圆环 · 底部色带） */
   {
-    const s = newSlide();
-    s.addShape(pptx.ShapeType.rect, { x:W-3.6, y:0, w:3.6, h:H, fill:{ color:T.soft }, line:{ color:T.soft } });
-    s.addShape(pptx.ShapeType.rect, { x:W-3.6, y:0, w:0.14, h:H, fill:{ color:T.accent }, line:{ color:T.accent } });
-    s.addText("心理课 · " + st.grade, { x:M, y:1.55, w:6, h:0.32, fontFace:F, fontSize:12, color:T.ink2, charSpacing:3 });
-    s.addText(st.topic, { x:M, y:2.05, w:W-2*M-1.5, h:1.5, fontFace:F, fontSize:50, bold:true, color:T.ink, valign:"middle" });
-    s.addText(c.tag, { x:M, y:3.7, w:W-2*M-1.5, h:0.6, fontFace:F, fontSize:17, color:T.ink2 });
-    s.addShape(pptx.ShapeType.rect, { x:M, y:4.65, w:2.2, h:0.05, fill:{ color:T.accent }, line:{ color:T.accent } });
-    s.addText([{ text:"时长 ", options:{ color:T.ink2 } }, { text:st.minutes+" 分钟", options:{ color:T.ink, bold:true } },
-                { text:"　·　页数 ", options:{ color:T.ink2 } }, { text:"15 页", options:{ color:T.ink, bold:true } },
-                { text:"　·　配色 ", options:{ color:T.ink2 } }, { text:T.nm, options:{ color:T.ink, bold:true } }],
-      { x:M, y:4.95, w:W-2*M, h:0.4, fontFace:F, fontSize:13 });
-    foot(s, 1);
-    note(s, "开场 1 分钟：一句话说明今天要解决的一个具体问题，不铺垫太长。\n提醒学生：本课不需要公开自己的隐私，可以只说「我观察到」。" );
+    const s = newSlide(T.deep);
+    for(let k=0;k<3;k++){
+      const d = 4.9 - k*0.55;
+      s.addShape(S.ellipse, { x:W-1.15-d/2, y:-0.75-d/2, w:d, h:d,
+        fill:{ color:T.deep, transparency:100 }, line:{ color:T.accent2, width:3.2-k*0.8, transparency:70+k*8 } });
+    }
+    sh(s, S.rect, 0, H-1.55, W, 1.55, T.accent, T.accent);
+    s.addShape(S.roundRect, { x:M, y:1.55, w:2.6, h:0.42, rectRadius:0.21,
+      fill:{ color:"FFFFFF", transparency:100 }, line:{ color:"FFFFFF", width:1.2, transparency:45 } });
+    s.addText("心理课 · " + st.grade, { x:M, y:1.55, w:2.6, h:0.42, fontFace:F, fontSize:12.5, bold:true, color:"FFFFFF", align:"center", valign:"middle", charSpacing:2 });
+    s.addText(st.topic, { x:M, y:2.15, w:W-2*M-0.8, h:1.55, fontFace:F, fontSize:62, bold:true, color:"FFFFFF", valign:"middle" });
+    s.addText(c.tag, { x:M, y:3.86, w:W-2*M-1.4, h:0.5, fontFace:F, fontSize:17, color:T.accent2 });
+    sh(s, S.rect, M, 4.72, 1.0, 0.08, T.accent2, T.accent2);
+    s.addText("★", { x:W-2.55, y:3.18, w:1.2, h:0.8, fontFace:F, fontSize:40, color:T.accent2, rotate:12 });
+    s.addShape(S.ellipse, { x:W-1.62, y:4.02, w:0.26, h:0.26, fill:{ color:T.accent2 }, line:{ color:T.accent2 } });
+    s.addShape(S.ellipse, { x:W-1.08, y:3.58, w:0.14, h:0.14, fill:{ color:"FFFFFF", transparency:30 }, line:{ color:"FFFFFF", transparency:100 } });
+    [[st.minutes + " 分钟", 1.55, 0], ["15 页", 1.35, 1.7], [T.nm, 1.9, 3.2]].forEach(([txt, w, dx])=>{
+      sh(s, S.roundRect, M+dx, H-1.02, w, 0.46, "FFFFFF", "FFFFFF", 0.23);
+      s.addText(txt, { x:M+dx, y:H-1.02, w, h:0.46, fontFace:F, fontSize:11.5, bold:true, color:T.accent, align:"center", valign:"middle" });
+    });
+    note(s, "开场 1 分钟：一句话说明今天要解决的一个具体问题，不铺垫太长。\n提醒学生：本课不需要公开自己的隐私，可以只说「我观察到」。");
   }
 
   /* 02 目标 */
   {
-    const s = newSlide(); head(s, "OBJECTIVES", "这节课，我们想做到三件事");
-    items(s, c.goals, 2.55, 18, 1.1);
+    const s = newSlide(); deco(s); head(s, "OBJECTIVES", "这节课，我们想做到三件事", "02");
+    cards(s, c.goals, 2.52, 6.72, 21);
     foot(s, 2);
-    note(s, "把目标读一遍即可，不用展开。\n讲完可以问一句：这三条里，你最想带走哪一条？举手看一下分布。" );
+    note(s, "把目标读一遍即可，不用展开。\n讲完可以问一句：这三条里，你最想带走哪一条？举手看一下分布。");
   }
 
   /* 03 暖身 */
   {
-    const s = newSlide(); head(s, "WARM UP", "先热个身：三个小问题");
-    items(s, ["最近一周，你因为「"+st.topic+"」烦过吗？（举手即可，不用说明）","当时身体的哪个部位最有反应？","你已经试过什么办法？管用吗？"], 2.5, 17, 1.15);
-    s.addText("规则：只说自己，不评价别人；不想说可以跳过。", { x:M, y:6.1, w:W-2*M, h:0.35, fontFace:F, fontSize:12, color:T.ink2 });
+    const s = newSlide(); deco(s); head(s, "WARM UP", "先热个身：三个小问题", "03");
+    cards(s, ["最近一周，你因为「"+st.topic+"」烦过吗？（举手即可，不用说明）","当时身体的哪个部位最有反应？","你已经试过什么办法？管用吗？"], 2.52, 6.42, 20);
+    tail(s, "规则：只说自己，不评价别人；不想说可以跳过。", 6.62);
     foot(s, 3);
-    note(s, "3 到 5 分钟。举手统计比逐个点名更安全。\n如果有学生说得很多，接住一句就转到下一个问题，避免变成个案辅导。" );
+    note(s, "3 到 5 分钟。举手统计比逐个点名更安全。\n如果有学生说得很多，接住一句就转到下一个问题，避免变成个案辅导。");
   }
 
   /* 04-06 知识点 */
   c.points.forEach((p, i) => {
-    const s = newSlide(); head(s, "KEY " + (i+1), p.t);
-    items(s, p.b, 2.55, 17, 1.15);
+    const s = newSlide(); deco(s); head(s, "KEY " + (i+1), p.t, "0" + (4+i));
+    cards(s, p.b, 2.52, 6.72, 21);
     foot(s, 4+i);
     note(s, i===0 ? "这一页是全场的地基，慢一点，举一个班里的通用例子（不要指向具体学生）。"
         : i===1 ? "重点让学生自己说出身体信号，老师只做归纳。可以请两三位同学补充。"
@@ -1621,85 +1696,82 @@ function ppBuildDeck(st){
 
   /* 07 活动 */
   {
-    const s = newSlide(); head(s, "ACTIVITY", c.act.t);
-    items(s, c.act.b, 2.5, 16, 1.0);
+    const s = newSlide(); deco(s); head(s, "ACTIVITY", c.act.t, "07");
+    cards(s, c.act.b, 2.52, 6.72, 18);
     foot(s, 7);
-    note(s, "8 到 12 分钟。提前说清规则与边界：可以只写事实，不写姓名。\n活动结束后留 1 分钟安静，让情绪落地再进下一环节。" );
+    note(s, "8 到 12 分钟。提前说清规则与边界：可以只写事实，不写姓名。\n活动结束后留 1 分钟安静，让情绪落地再进下一环节。");
   }
 
   /* 08 案例 */
   {
-    const s = newSlide(); head(s, "CASE", c.case.t);
-    items(s, c.case.b, 2.5, 16, 1.0);
+    const s = newSlide(); deco(s); head(s, "CASE", c.case.t, "08");
+    cards(s, c.case.b, 2.52, 6.72, 18);
     foot(s, 8);
-    note(s, "案例必须是虚构或高度改写的，不能指向本班学生。\n讨论时把「他会怎么想」放在「他做得对不对」之前。" );
+    note(s, "案例必须是虚构或高度改写的，不能指向本班学生。\n讨论时把「他会怎么想」放在「他做得对不对」之前。");
   }
 
   /* 09 方法 */
   {
-    const s = newSlide(); head(s, "SKILLS", "三个可以马上用的方法");
-    items(s, c.skills, 2.6, 18, 1.15);
+    const s = newSlide(); deco(s); head(s, "SKILLS", "三个可以马上用的方法", "09");
+    cards(s, c.skills, 2.52, 6.72, 20);
     foot(s, 9);
-    note(s, "每个方法配一句「什么时候用」。\n请学生选一个，写在书页角上，作为本周的小实验。" );
+    note(s, "每个方法配一句「什么时候用」。\n请学生选一个，写在书页角上，作为本周的小实验。");
   }
 
   /* 10 放松 */
   {
-    const s = newSlide(); head(s, "PRACTICE", "一起做一次放松练习");
-    items(s, c.relax, 2.45, 17, 0.98);
-    s.addText("全程约 3 分钟 · 可以闭眼，也可以看着桌面", { x:M, y:6.45, w:W-2*M, h:0.32, fontFace:F, fontSize:12, color:T.ink2 });
+    const s = newSlide(); deco(s); head(s, "PRACTICE", "一起做一次放松练习", "10");
+    cards(s, c.relax, 2.52, 6.42, 18);
+    tail(s, "全程约 3 分钟 · 可以闭眼，也可以看着桌面", 6.62);
     foot(s, 10);
-    note(s, "语速放慢到平时的一半，每句之间停 2 秒。\n不要触碰学生身体；有学生不愿闭眼，允许睁眼看向桌面。" );
+    note(s, "语速放慢到平时的一半，每句之间停 2 秒。\n不要触碰学生身体；有学生不愿闭眼，允许睁眼看向桌面。");
   }
 
-  /* 11 小结 */
+  /* 11 小结（大字号金句卡） */
   {
-    const s = newSlide(); head(s, "SUMMARY", "带走三句话");
-    items(s, c.sum, 2.6, 19, 1.15);
+    const s = newSlide(); deco(s); head(s, "SUMMARY", "带走三句话", "11");
+    cards(s, c.sum, 2.52, 6.72, 24);
     foot(s, 11);
     note(s, "请三位同学各读一句，比老师自己念更有代入感。\n最后一句停两秒再翻页。" );
   }
 
   /* 12 延伸 */
   {
-    const s = newSlide(); head(s, "HOMEWORK", "课后可以做的三件小事");
-    items(s, c.ext, 2.55, 17, 1.15);
+    const s = newSlide(); deco(s); head(s, "HOMEWORK", "课后可以做的三件小事", "12");
+    cards(s, c.ext, 2.52, 6.72, 20);
     foot(s, 12);
     note(s, "强调「三选一」而不是「都要做」，降低负担。\n下周课前用 2 分钟回收，别让它变成空作业。" );
   }
 
-  /* 13 资源 */
+  /* 13 求助（深色强调页） */
   {
-    const s = newSlide(); head(s, "SUPPORT", "需要帮助时，可以找谁");
-    items(s, [
-      "学校心理老师 / 班主任（工作日都可以找）",
-      "全国心理援助热线 12356（24 小时）",
-      "青少年服务热线 12355",
-      "紧急危险：110 / 120，先保证安全",
-    ], 2.45, 17, 0.98);
-    s.addText("求助不是软弱，是把问题交给更有能力处理的人。", { x:M, y:6.42, w:W-2*M, h:0.34, fontFace:F, fontSize:12.5, color:T.ink, bold:true });
-    foot(s, 13);
+    const s = newSlide(T.deep); deco(s, true); head(s, "SUPPORT", "需要帮助时，可以找谁", "13", true);
+    cards(s, ["学校心理老师 / 班主任（工作日都可以找）","全国心理援助热线 12356（24 小时）","青少年服务热线 12355","紧急危险：110 / 120，先保证安全"], 2.52, 6.12, 18, true);
+    tail(s, "求助不是软弱，是把问题交给更有能力处理的人。", 6.34, true);
+    foot(s, 13, true);
     note(s, "这一页必须讲，不能跳。\n把本校心理室的位置与开放时间写在黑板上，比念号码更有用。" );
   }
 
   /* 14 时间分配（讲师页） */
   {
-    const s = newSlide(); head(s, "FOR TEACHER", "时间分配建议（" + st.minutes + " 分钟）");
+    const s = newSlide(); deco(s); head(s, "FOR TEACHER", "时间分配建议（" + st.minutes + " 分钟）", "14");
     const seg = [["暖身导入",0.12],["知识点讲解",0.30],["体验活动",0.28],["案例讨论",0.20],["小结与延伸",0.10]]
-      .map(([n,r])=>[n, Math.max(2, Math.round(st.minutes*r))+" 分钟"]);
-    items(s, seg.map(([n,t])=>n + "　—　" + t), 2.4, 16, 0.8);
-    s.addText("本页为讲师页，放映时可右键「隐藏幻灯片」。", { x:M, y:6.55, w:W-2*M, h:0.3, fontFace:F, fontSize:12, color:T.ink2 });
+      .map(([n,r])=>n + "　—　" + Math.max(2, Math.round(st.minutes*r)) + " 分钟");
+    cards(s, seg, 2.52, 6.02, 15.5);
+    tail(s, "本页为讲师页，放映时可右键「隐藏幻灯片」。", 6.28);
     foot(s, 14);
     note(s, "实际课堂常被突发事件打断，宁可少讲一个知识点，也要把活动和放松做完。" );
   }
 
-  /* 15 结束 */
+  /* 15 结束（整版深色） */
   {
-    const s = newSlide();
-    s.addShape(pptx.ShapeType.rect, { x:0, y:H-1.35, w:W, h:1.35, fill:{ color:T.soft }, line:{ color:T.soft } });
-    s.addText("谢谢", { x:M, y:2.4, w:W-2*M, h:1.2, fontFace:F, fontSize:54, bold:true, color:T.ink, valign:"middle" });
-    s.addText("愿你和你的学生，都被好好接住。", { x:M, y:3.75, w:W-2*M, h:0.5, fontFace:F, fontSize:18, color:T.ink2 });
-    s.addText("心理老师工作台 · " + T.nm, { x:M, y:H-0.95, w:W-2*M, h:0.35, fontFace:F, fontSize:12, color:T.ink2 });
+    const s = newSlide(T.deep);
+    s.addShape(S.ellipse, { x:W-5.2, y:0.9, w:4.25, h:4.25, fill:{ color:T.deep, transparency:100 }, line:{ color:T.accent2, width:2.2, transparency:78 } });
+    s.addShape(S.ellipse, { x:W-4.2, y:1.9, w:2.25, h:2.25, fill:{ color:T.accent, transparency:78 }, line:{ color:T.accent, transparency:100 } });
+    sh(s, S.rect, M, 2.2, 5.0, 0.1, T.accent2, T.accent2);
+    s.addText("谢谢", { x:M, y:2.5, w:W-2*M, h:1.62, fontFace:F, fontSize:76, bold:true, color:"FFFFFF", valign:"middle" });
+    s.addText("愿你和你的学生，都被好好接住。", { x:M, y:4.25, w:W-2*M-1.2, h:0.5, fontFace:F, fontSize:19, color:T.accent2 });
+    s.addText("心理老师工作台 · " + T.nm, { x:M, y:H-0.92, w:W-2*M, h:0.35, fontFace:F, fontSize:12, color:"9FB0CE" });
     note(s, "留 30 秒安静收尾，不急着下课。\n如果有人在课上被触动，课后单独找他一分钟。" );
   }
 
