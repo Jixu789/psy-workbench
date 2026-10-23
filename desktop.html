@@ -1782,7 +1782,8 @@ function llmContent(topic){
 }
 const LLM_PRESETS = {
   deepseek: { nm:"DeepSeek 官方", base:"https://api.deepseek.com/v1", model:"deepseek-chat" },
-  silicon:  { nm:"硅基流动", base:"https://api.siliconflow.cn/v1", model:"Qwen/Qwen2.5-7B-Instruct" }
+  silicon:  { nm:"硅基流动", base:"https://api.siliconflow.cn/v1", model:"Qwen/Qwen2.5-7B-Instruct" },
+  ark:      { nm:"火山方舟 · 豆包", base:"https://ark.cn-beijing.volces.com/api/v3", model:"doubao-seed-1-6-250615" }
 };
 function llmHost(){
   const b = (PPT_LLM.base || "").trim();
@@ -1931,7 +1932,7 @@ function llmErr(err){
   const m = (err && err.message) || "未知错误";
   if(/^连不上接口/.test(m)) return "连不上 " + llmHost() + "：地址可能写错、网络不通，或这个服务没给浏览器开跨域（CORS）。"
     + "中转站（这类 xxx.com 网关面板）多数默认关闭跨域，跟 Key 对不对无关 —— 请站长开「允许跨域 / CORS」，"
-    + "或点上面预置改用 DeepSeek 官方 / 硅基流动。";
+    + "或点上面预置改用 DeepSeek 官方 / 硅基流动。火山方舟（volces.com）在 Key 无效时不返回跨域头，浏览器只会显示「连不上」，请先确认 Key 有效、该模型已开通。";
   return m;
 }
 async function llmTest(){
@@ -2793,6 +2794,7 @@ async function aiShrink(src, px){
 const AI_PRESETS = {
   silicon:  { base: "https://api.siliconflow.cn",            model: "Kwai-Kolors/Kolors", size: "1024x1024" },
   bigmodel: { base: "https://open.bigmodel.cn/api/paas/v4",  model: "cogview-3-flash",    size: "1024x1024" },
+  ark:      { base: "https://ark.cn-beijing.volces.com/api/v3", model: "doubao-seedream-5-0-pro-260628", size: "2K" },
   openai:   { base: "https://api.openai.com",                model: "gpt-image-1",        size: "1024x1024" }
 };
 function aiBaseUrl(cfg){
@@ -2809,7 +2811,7 @@ function aiModelsUrl(cfg){
 function aiNetErr(){
   return "连不上接口：可能是网络不通，或该接口不允许浏览器跨域（CORS）。"
     + "中转站的控制台域名（如 sub2api.xxx）不接受跨域；同域的 api.xxx 也可能是只做对话的代理、没有生图接口；"
-    + "国内网络直连 api.openai.com 基本不通。建议点「检查接口」换预置或换网关地址";
+    + "国内网络直连 api.openai.com 基本不通。建议点「检查接口」换预置或换网关地址。火山方舟（volces.com）在 Key 无效时不返回跨域头，浏览器只会显示「连不上」，请先确认 Key 有效、模型已开通";
 }
 async function aiFetch(url, opt, ms){
   if(navigator.onLine === false) throw new Error("当前设备没有联网，连上网络再试");
@@ -2835,12 +2837,16 @@ async function aiCall(prompt){
   const model = PPT_AI.cfg.model || "gpt-image-1";
   const head = { "Content-Type": "application/json", "Authorization": "Bearer " + PPT_AI.cfg.key };
   const mk = extra => Object.assign({ model: model, prompt: prompt, n: 1, size: PPT_AI.cfg.size || "1024x1024" }, extra);
-  let body = mk(/^gpt-image/.test(model) ? {} : { response_format: "b64_json" });
+  const isArk = /volces\.com|doubao-seedream/i.test(url + " " + model);
+  let body = mk(Object.assign(
+    /^gpt-image/.test(model) ? {} : { response_format: "b64_json" },
+    isArk ? { watermark: false } : {}
+  ));
   let r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
   let text = "";
   try{ text = await r.text(); }catch(e){}
-  if(!r.ok && body.response_format && /response_format|unsupported|unknown|invalid|unrecognized|extra/i.test(text)){
-    body = mk({});
+  if(!r.ok && (body.response_format || body.watermark === false) && /response_format|watermark|unsupported|unknown|invalid|unrecognized|extra/i.test(text)){
+    body = mk(isArk ? { watermark: false } : {});
     r = await aiFetch(url, { method: "POST", headers: head, body: JSON.stringify(body) }, 150000);
     text = ""; try{ text = await r.text(); }catch(e){}
   }
@@ -2918,6 +2924,7 @@ function aiOpen(){
       '<div class="field"><label>接口地址</label>' +
         '<div class="ai-presets"><span class="up" data-pre="silicon">硅基流动</span>' +
           '<span class="up" data-pre="bigmodel">智谱 · 有免费额度</span>' +
+          '<span class="up" data-pre="ark">火山方舟 · 豆包</span>' +
           '<span class="up" data-pre="openai">OpenAI 官方</span>' +
           '' +
         '<input id="ai-base" value="' + attr(c.base) + '" placeholder="https://api.siliconflow.cn"/>' +
@@ -2953,7 +2960,10 @@ function aiOpen(){
       document.getElementById("ai-model").value = p.model;
       document.getElementById("ai-size").value = p.size;
       const st = document.getElementById("ai-state");
-      st.className = "sync-state"; st.style.color = ""; st.textContent = "已填入 " + p.base + "，再填 Key";
+      st.className = "sync-state"; st.style.color = "";
+      st.textContent = "已填入 " + p.base + (el.dataset.pre === "ark"
+        ? "，再填 Key。注意：方舟官方接口对浏览器跨域不稳定，若测试连接报「连不上」，请改用硅基流动。"
+        : "，再填 Key");
       document.getElementById("ai-key").focus();
     };
   });
@@ -3052,10 +3062,11 @@ function renderPpt(){
         </div>
         <div class="ppt-card" id="ppt-llm-card">
           <h3>${icon("sun",17)} API 配置 <span class="en">LESSON AI</span></h3>
-          <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / 通义 / DeepSeek），用来写这一课的 15 页文案。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
+          <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / DeepSeek / 硅基流动 / 火山方舟豆包），用来写这一课的 15 页文案。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">
             <button class="btn ghost" data-llmpre="deepseek" style="height:30px;padding:0 12px;font-size:12px">DeepSeek 官方</button>
             <button class="btn ghost" data-llmpre="silicon" style="height:30px;padding:0 12px;font-size:12px">硅基流动</button>
+            <button class="btn ghost" data-llmpre="ark" style="height:30px;padding:0 12px;font-size:12px">火山方舟 · 豆包</button>
           </div>
           <div class="field"><label>接口地址</label><input id="llm-base" style="width:100%" placeholder="https://api.deepseek.com/v1" value="${attr(PPT_LLM.base)}"/></div>
           <div class="frow">
@@ -3148,7 +3159,8 @@ function renderPpt(){
     if($("#llm-base")) $("#llm-base").value = cfg.base;
     if($("#llm-model")) $("#llm-model").value = cfg.model;
     llmSaveCfg();
-    llmPaint("已填入「" + cfg.nm + "」，粘上 Key 后点「测试连接」。", "ok");
+    llmPaint("已填入「" + cfg.nm + "」，粘上 Key 后点「测试连接」。"
+      + (p.dataset.llmpre === "ark" ? "注意：方舟官方接口对浏览器跨域不稳定，若报「连不上」请改用 DeepSeek 官方。" : ""), "ok");
   });
   $("#ppt-llm-card").addEventListener("click", e => {
     const t = e.target.closest("[data-llm]"); if(!t) return;
