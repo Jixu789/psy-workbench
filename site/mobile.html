@@ -385,24 +385,28 @@
   .cal-foot svg { color:var(--module-3); }
 
   .hidden { display: none !important; }
-  .ppt-wrap { display:grid; grid-template-columns:1.12fr .88fr; gap:16px; align-items:start; }
+  .ppt-wrap { display:flex; align-items:stretch; gap:16px; }
+  .ppt-col-main { flex:1.05 1 0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+  .ppt-col-main > .ppt-card { flex:0 0 auto; }
+  .ppt-wrap .seg.seg-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
+  .ppt-wrap .seg.seg-6 .opt { min-width:0; padding:9px 4px; }
   .ppt-card { background:var(--surface-card); border:1px solid var(--border); border-radius:var(--radius-tile); box-shadow:var(--shadow-card); padding:18px 18px 16px; }
-  .ppt-card > h3 { font-size:15px; font-weight:800; letter-spacing:-.01em; margin-bottom:16px; display:flex; align-items:center; gap:9px; }
+  .ppt-card > h3 { font-size:15px; font-weight:800; letter-spacing:-.01em; margin-bottom:14px; display:flex; align-items:center; gap:9px; }
   .ppt-card > h3 .en { font-size:10px; letter-spacing:.14em; color:var(--text-tertiary); font-weight:700; }
-  .ppt-chips { display:flex; flex-wrap:wrap; gap:7px; margin:9px 0 0; }
-  .ppt-chip { padding:6px 11px; border-radius:999px; border:1px solid var(--border-input); background:var(--surface-card);
+  .ppt-chips { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:9px 0 0; }
+  .ppt-chip { padding:7px 6px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:999px; border:1px solid var(--border-input); background:var(--surface-card);
     color:var(--text-secondary); font-size:12.5px; cursor:pointer; transition:all .12s; }
   .ppt-chip:hover { color:var(--text); border-color:var(--text-tertiary); }
   .ppt-chip.on { background:var(--accent-muted); border-color:var(--accent); color:var(--text); font-weight:700; }
-  .ppt-swatch { display:flex; flex-wrap:wrap; gap:9px; }
-  .ppt-sw { flex:1 1 calc(50% - 5px); border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px; cursor:pointer; transition:all .12s; text-align:left; }
-  .ppt-sw .bar { height:20px; border-radius:7px; margin-bottom:7px; border:1px solid rgba(0,0,0,.06); }
-  .ppt-sw .nm { font-size:12.5px; font-weight:700; }
-  .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:2px; }
+  .ppt-swatch { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .ppt-sw { display:flex; flex-direction:column; border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px 10px; cursor:pointer; transition:all .12s; text-align:left; }
+  .ppt-sw .bar { height:22px; border-radius:7px; margin-bottom:8px; border:1px solid rgba(0,0,0,.06); flex:0 0 auto; }
+  .ppt-sw .nm { font-size:12.5px; font-weight:700; line-height:1.3; }
+  .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:3px; line-height:1.45; }
   .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
   .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
-  .ppt-ainote { font-size:12.5px; color:var(--text-secondary); margin-top:8px; line-height:1.7; }
-  .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+  .ppt-ainote { font-size:12px; color:var(--text-secondary); margin-top:10px; line-height:1.6; }
+  .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
   .ai-presets { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; }
   .ai-presets .up { font-size:12.5px; padding:4px 10px; border:1px solid var(--border); border-radius:999px;
     color:var(--text-secondary); background:var(--surface-nested); cursor:pointer; }
@@ -417,27 +421,41 @@
   .ppt-ref.empty .bar { border-style:dashed; }
   .ppt-ref.busy { opacity:.5; pointer-events:none; }
   .ppt-outline { counter-reset:step; display:flex; flex-direction:column; }
-  .ppt-line { display:flex; gap:11px; align-items:center; padding:7px 2px; border-bottom:1px dashed var(--border); font-size:12.8px; color:var(--text-secondary); }
+  .ppt-line { display:flex; gap:10px; align-items:center; padding:6px 2px; border-bottom:1px dashed var(--border); font-size:12.5px; color:var(--text-secondary); }
   .ppt-line:last-child { border-bottom:none; }
   .ppt-line i { counter-increment:step; font-style:normal; flex:0 0 22px; height:22px; border-radius:7px; background:var(--surface-nested);
     color:var(--text-tertiary); font-size:11px; font-weight:800; display:grid; place-items:center; }
   .ppt-line i::before { content: counter(step, decimal-leading-zero); }
   .ppt-line b { color:var(--text); font-weight:700; }
-  .ppt-actions { display:flex; align-items:center; gap:12px; margin-top:18px; flex-wrap:wrap; }
-  .ppt-actions .btn { padding:12px 22px; font-weight:800; letter-spacing:.01em; }
+  .ppt-actions { display:flex; align-items:center; gap:10px; margin-top:16px; padding-top:14px; border-top:1px solid var(--border); flex-wrap:wrap; }
+  .ppt-actions .btn { min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:12px 20px; font-weight:800; letter-spacing:.01em; }
   .ppt-actions .btn[disabled] { opacity:.55; cursor:progress; }
-  .ppt-state { font-size:12.5px; color:var(--text-secondary); min-height:18px; }
+  .ppt-state { font-size:12.5px; color:var(--text-secondary); }
+  .ppt-state:not(:empty) { flex:0 0 100%; }
   .ppt-state.ok { color:var(--module-1); font-weight:700; }
   .ppt-state.err { color:var(--danger); font-weight:700; }
   .ppt-toggle { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; padding:4px 0; }
   .ppt-toggle input { width:16px; height:16px; accent-color:var(--accent); }
   .ppt-note { font-size:12px; color:var(--text-tertiary); line-height:1.65; margin-top:12px; }
-  .ppt-card .ppt-note .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
-  .ppt-side { display:flex; flex-direction:column; gap:16px; }
-  @media (max-width:1120px) { .ppt-wrap { grid-template-columns:1fr; } }
+  .ppt-card .ppt-note .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
+  .ppt-side { flex:.95 1 0; min-width:0; display:flex; flex-direction:column; gap:16px; }
+  .ppt-side > .ppt-card { display:flex; flex-direction:column; }
+  .ppt-side > #pv-card { flex:1 1 0; min-height:0; }
+  @media (max-width:1120px) {
+    .ppt-wrap { flex-direction:column; }
+    .ppt-col-main { display:contents; }
+    .ppt-side { flex:0 0 auto; order:2; }
+    .ppt-side > #pv-card { flex:0 0 auto; }
+    #ppt-llm-card { order:3; }
+    #pv-grid { flex:0 0 auto; max-height:520px; }
+  }
 
   /* ---------- 视觉预览（16:9 仿真，随配色与主题实时变化） ---------- */
-  .pv-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; max-height:486px; overflow-y:auto; padding:2px 2px 4px; }
+  .pv-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1 1 0; min-height:0; max-height:none; overflow-y:auto;
+    padding:2px 2px 4px; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--border-input) transparent; }
+  .pv-grid::-webkit-scrollbar { width:8px; }
+  .pv-grid::-webkit-scrollbar-thumb { background:var(--border-input); border-radius:8px; border:2px solid transparent; background-clip:padding-box; }
+  .pv-grid::-webkit-scrollbar-track { background:transparent; }
   .pv-cell { position:relative; border:1px solid var(--border); border-radius:10px; overflow:hidden; cursor:zoom-in;
     background:var(--surface-nested); transition:border-color .12s, box-shadow .12s; }
   .pv-cell:hover { border-color:var(--accent); box-shadow:0 4px 14px rgba(0,0,0,.10); }
@@ -464,23 +482,25 @@
   .pv-hint { font-size:11.5px; color:var(--text-tertiary); margin-top:8px; }
 
   /* ---- 一键出课件（手机版覆盖） ---- */
-  .ppt-wrap { grid-template-columns:1fr; }
+  .ppt-wrap { flex-direction:column; gap:14px; }
   .ppt-card { padding:16px 14px 14px; }
-  .ppt-side { gap:14px; margin-top:14px; }
+  .ppt-col-main { display:contents; }
+  .ppt-side { flex:0 0 auto; order:2; gap:14px; margin-top:0; }
+  #ppt-llm-card { order:3; }
   .ppt-hero { margin-bottom:14px; }
   .ppt-hero h2 { font-size:19px; font-weight:800; letter-spacing:-.01em; }
   .ppt-hero p { font-size:12.5px; color:var(--text-tertiary); margin-top:5px; line-height:1.6; }
   .ppt-chips { gap:6px; }
   .ppt-chip { padding:7px 12px; font-size:12.5px; }
   .ppt-outline { max-height:314px; overflow-y:auto; }
-  .pv-grid { max-height:none; gap:8px; }
+  .pv-grid { flex:0 0 auto; gap:8px; }
   .pv-overlay { padding:12px; }
   .pv-bar2 .nm { min-width:0; flex:1 1 100%; order:2; }
   .ppt-actions { gap:10px; }
   .ppt-actions .btn { flex:1 1 100%; }
   .ppt-note { font-size:11.5px; }
-  .ppt-wrap .seg { flex-wrap:wrap; gap:6px; }
-  .ppt-wrap .seg .opt { flex:0 0 auto; white-space:nowrap; padding:9px 13px; font-size:13px; }
+  .ppt-wrap .seg { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:6px; }
+  .ppt-wrap .seg .opt { min-width:0; white-space:nowrap; padding:9px 4px; font-size:12.5px; }
   .ppt-wrap { padding-bottom:24px; }
   .ppt-actions { padding-bottom:6px; }
 
@@ -2796,47 +2816,37 @@ function renderPpt(){
 
   $("#screen").innerHTML = `
     <div class="ppt-wrap">
-      <div class="ppt-card">
-        <h3>${icon("bolt",17)} 课程设置 <span class="en">SETUP</span></h3>
-        <div class="field">
-          <label>课程主题</label>
-          <input id="ppt-topic" value="${attr(st.topic)}" placeholder="例如：情绪管理" style="width:100%"/>
-          <div class="ppt-chips" id="ppt-chips">${chips}</div>
-        </div>
-        <div class="frow">
-          <div class="field"><label>学段</label><div class="seg" id="ppt-grade">${segHTML(grades, st.grade)}</div></div>
-          <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div></div>
-        </div>
-        <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${st.style!=="poster"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
-        <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
-        <div class="field"><label>插画 <span class="en">ART</span></label>
-          <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
-          <div class="ppt-ainote" id="ppt-ainote">${aiNoteHTML(st)}</div>
-        </div>
-        <label class="ppt-toggle"><input type="checkbox" id="ppt-notes" ${st.notes?"checked":""}/> 生成讲师备注（放映时在「演示者视图」可见）</label>
-        <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
-        <div class="ppt-actions">
-          <button class="btn" id="ppt-gen">一键生成 PPTX</button>
-          <button class="btn ghost" id="ppt-pv">视觉预览</button>
-          <span class="ppt-state" id="ppt-state"></span>
-        </div>
-        <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
-      </div>
-      <div class="ppt-side">
+      <div class="ppt-col-main">
         <div class="ppt-card">
-          <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
-          <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
-          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
-        </div>
-        <div class="ppt-card">
-          <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
-          <div class="pv-grid" id="pv-grid">${pvGridHTML(st)}</div>
-          <div class="pv-hint">点任意缩略图放大查看，← → 翻页，Esc 关闭</div>
+          <h3>${icon("bolt",17)} 课程设置 <span class="en">SETUP</span></h3>
+          <div class="field">
+            <label>课程主题</label>
+            <input id="ppt-topic" value="${attr(st.topic)}" placeholder="例如：情绪管理" style="width:100%"/>
+            <div class="ppt-chips" id="ppt-chips">${chips}</div>
+          </div>
+          <div class="field"><label>学段</label><div class="seg seg-6" id="ppt-grade">${segHTML(grades, st.grade)}</div></div>
+          <div class="frow">
+            <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div></div>
+            <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${st.style!=="poster"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
+          </div>
+          <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
+          <div class="field"><label>插画 <span class="en">ART</span></label>
+            <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
+            <div class="ppt-ainote" id="ppt-ainote">${aiNoteHTML(st)}</div>
+          </div>
+          <label class="ppt-toggle"><input type="checkbox" id="ppt-notes" ${st.notes?"checked":""}/> 生成讲师备注（放映时在「演示者视图」可见）</label>
+          <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
+          <div class="ppt-actions">
+            <button class="btn" id="ppt-gen">一键生成 PPTX</button>
+            <button class="btn ghost" id="ppt-pv">视觉预览</button>
+            <span class="ppt-state" id="ppt-state"></span>
+          </div>
+          <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
         </div>
         <div class="ppt-card" id="ppt-llm-card">
           <h3>${icon("sun",17)} API 配置 <span class="en">LESSON AI</span></h3>
           <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / DeepSeek / 硅基流动 / 火山方舟豆包），用来写这一课的 15 页文案。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">
+          <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">
             <button class="btn ghost" data-llmpre="deepseek" style="height:30px;padding:0 12px;font-size:12px">DeepSeek 官方</button>
             <button class="btn ghost" data-llmpre="silicon" style="height:30px;padding:0 12px;font-size:12px">硅基流动</button>
             <button class="btn ghost" data-llmpre="ark" style="height:30px;padding:0 12px;font-size:12px">火山方舟 · 豆包</button>
@@ -2853,6 +2863,18 @@ function renderPpt(){
             <button class="btn" id="llm-write">AI 写这一课</button>
           </div>
           <div class="ppt-note">Key 只存在你本机浏览器的存储里，不会上传到任何服务器。公共电脑上用完建议 <span class="up" data-llm="wipe">清空 Key</span>。<br/>不配置时仍用内置文案；AI 写好后可随时「恢复内置」。</div>
+        </div>
+      </div>
+      <div class="ppt-side">
+        <div class="ppt-card">
+          <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
+          <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
+          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+        </div>
+        <div class="ppt-card" id="pv-card">
+          <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
+          <div class="pv-grid" id="pv-grid">${pvGridHTML(st)}</div>
+          <div class="pv-hint">点任意缩略图放大查看，← → 翻页，Esc 关闭</div>
         </div>
       </div>
     </div>`;
