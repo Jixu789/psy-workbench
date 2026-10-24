@@ -3740,6 +3740,7 @@ function renderPpt(){
           <div class="ppt-actions">
             <button class="btn" id="ppt-gen">一键生成 PPTX</button>
             <button class="btn ghost" id="ppt-pv">视觉预览</button>
+            <button class="btn" id="llm-write">AI 写这一课</button>
             <span class="ppt-state" id="ppt-state"></span>
           </div>
           <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
@@ -3761,7 +3762,7 @@ function renderPpt(){
           <div class="ppt-actions">
             <button class="btn ghost" id="llm-save">保存</button>
             <button class="btn ghost" id="llm-test">测试连接</button>
-            <button class="btn" id="llm-write">AI 写这一课</button><button class="btn ghost" id="llm-plan">AI 编排版式</button>
+            <button class="btn ghost" id="llm-plan">AI 编排版式</button>
           </div>
           <div class="ppt-note">Key 只存在你本机浏览器的存储里，不会上传到任何服务器。公共电脑上用完建议 <span class="up" data-llm="wipe">清空 Key</span>。<br/>不配置时仍用内置文案；AI 写好后可随时「恢复内置」。</div>
         </div>
