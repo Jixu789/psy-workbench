@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 rx=%2724%27 fill=%27%23EFA23C%27/%3E%3Ctext x=%2750%27 y=%2768%27 font-size=%2758%27 text-anchor=%27middle%27 fill=%27white%27%3E%E5%BF%83%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>心理老师工作台</title>
+<meta name="theme-color" content="#FFFBF3">
+<style>
+  :root{
+    --bg:#FFFBF3; --card:#FFFFFF; --ink:#3B3630; --ink2:#6E655A; --ink3:#9A8F80;
+    --accent:#EFA23C; --accent-soft:#FBEBD5; --line:#F0E6D4;
+    --mint:#6FA98B; --violet:#9A86B8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink); min-height:100vh;
+    font-family:"PingFang SC","Microsoft YaHei","Hiragino Sans GB",system-ui,sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:28px 20px 40px;
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(239,162,60,.14), transparent 42%),
+      radial-gradient(circle at 88% 92%, rgba(111,169,139,.14), transparent 40%);
+  }
+  .wrap{width:100%; max-width:720px}
+  .brand{display:flex; align-items:center; gap:12px; margin-bottom:26px}
+  .logo{
+    width:46px;height:46px;border-radius:14px;background:var(--accent);
+    display:grid;place-items:center;font-size:22px;color:#fff;
+    box-shadow:0 6px 16px rgba(239,162,60,.32);
+  }
+  .brand h1{font-size:21px;font-weight:800;letter-spacing:.04em}
+  .brand p{font-size:11px;color:var(--ink3);letter-spacing:.18em;margin-top:3px}
+  .lead{font-size:14px;color:var(--ink2);line-height:1.9;margin-bottom:22px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:600px){.cards{grid-template-columns:1fr}}
+  a.card{
+    display:block;text-decoration:none;color:inherit;background:var(--card);
+    border:1px solid var(--line);border-radius:20px;padding:22px 20px 20px;
+    box-shadow:0 8px 22px rgba(59,54,48,.06);transition:.18s;position:relative;overflow:hidden;
+  }
+  a.card:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(59,54,48,.10)}
+  .tag{
+    display:inline-block;font-size:11px;letter-spacing:.08em;color:var(--ink2);
+    background:var(--accent-soft);border-radius:99px;padding:3px 10px;margin-bottom:12px;
+  }
+  a.card h2{font-size:18px;font-weight:800;margin-bottom:7px}
+  a.card p{font-size:13px;color:var(--ink2);line-height:1.75}
+  .go{margin-top:14px;font-size:13px;font-weight:700;color:var(--accent)}
+  .tape{
+    position:absolute;top:-9px;right:18px;width:56px;height:18px;border-radius:3px;
+    background:rgba(239,162,60,.45);transform:rotate(-4deg);
+  }
+  .note{
+    margin-top:26px;background:var(--card);border:1px dashed var(--line);border-radius:16px;
+    padding:16px 18px;font-size:12.5px;color:var(--ink2);line-height:1.85;
+  }
+  .note b{color:var(--ink)}
+  .foot{margin-top:18px;font-size:11px;color:var(--ink3);text-align:center;line-height:1.9}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">
+      <div class="logo">心</div>
+      <div>
+        <h1>心理老师工作台</h1>
+        <p>PSY · TEACHER WORKBENCH</p>
+      </div>
+    </div>
+
+    <p class="lead">日常待办、个案台账、课程排期、自我关照，都在一个页面里。数据默认只存在你自己的浏览器，不上传、不联网；想让手机和电脑共用同一份数据，可在两端各填一次令牌开启同步（可选，随时可关）。</p>
+
+    <div class="cards">
+      <a class="card" href="mobile.html">
+        <span class="tape"></span>
+        <span class="tag">手机用</span>
+        <h2>手机版</h2>
+        <p>竖向布局，单手可操作。打开后点浏览器菜单「添加到主屏幕」，就是一个 App 图标。</p>
+        <div class="go">进入手机版 →</div>
+      </a>
+      <a class="card" href="desktop.html">
+        <span class="tag">电脑用</span>
+        <h2>电脑版</h2>
+        <p>三栏布局，待办、课程、个案台账同屏。建议加到浏览器书签栏。</p>
+        <div class="go">进入电脑版 →</div>
+      </a>
+    </div>
+
+    <div class="note">
+      <b>关于数据：</b>默认只保存在「当前这台设备、这个浏览器」里，清理浏览器缓存会丢失。<br>
+      <b>关于同步（可选）：</b>在电脑版左下角、手机版抽屉最下面各点一次「同步设置」，填入同一个 GitHub 令牌即可。之后任一端改动约 15 秒内另一端自动更新，数据放在你自己账号下的私有仓库里，不经过第三方服务器。<br>
+      <b>同步范围：</b>待办、自我关照、课程排期、活动筹备、学期目标、素材灵感；<b>个案台账不同步</b>，只留在本机。<br>
+      个案栏只写「学生A / 学生B」这类代号，不要写真实姓名、班级、联系方式。
+    </div>
+
+    <p class="foot">单文件网页 · 无需安装 · 建议使用 Safari / Chrome / Edge 打开</p>
+  </div>
+</body>
+</html>

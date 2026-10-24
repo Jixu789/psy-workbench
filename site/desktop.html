@@ -2066,24 +2066,42 @@ function smArtRole(v, pg){
 function smPageText(pg){
   return [pg.kick, pg.title, pg.sub, pg.quote, (pg.items || []).map(x => typeof x === "string" ? x : [x.t, x.b, x.l, x.n].join(" ")).join(" "), pg.note].join(" ");
 }
-/* 素材库按页匹配：文件名/备注关键词命中越多越优先 */
+function smImgFile(file, px){
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error("图片读取失败"));
+    fr.onload = () => {
+      const im = new Image();
+      im.onerror = () => rej(new Error("图片解码失败"));
+      im.onload = () => {
+        const s = Math.min(im.width, im.height);
+        const c = document.createElement("canvas");
+        c.width = c.height = px;
+        const g = c.getContext("2d");
+        g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, px, px);
+        g.drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, px, px);
+        res({ src:c.toDataURL("image/jpeg", 0.74), img:im, w:im.width, h:im.height });
+      };
+      im.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+/* 素材库按页匹配：主题 / 情绪 / 年级 + 页面语义；支持逐页手动指定 */
 function smLibPick(pg, st){
   if(!st || st.imgs === false) return "";
-  const list = smLib();
-  if(!list.length) return "";
-  const txt = smPageText(pg);
-  let best = null, score = 1;
-  list.forEach(it => {
-    const tag = (it.name || "").replace(/[_\-\d.]+/g, " ");
-    let v = 0;
-    tag.split(/\s+/).filter(w => w.length >= 2).forEach(w => { if(txt.indexOf(w) >= 0) v += 2; });
-    (it.words || []).forEach(w => { if(txt.indexOf(w) >= 0) v += 1; });
-    if(v > score){ score = v; best = it; }
-  });
-  return best ? best.src : "";
+  const hit = mxImgPick(pg, st);
+  return hit ? hit.img.src : "";
 }
 function smImgSrc(pg, st){
   if(st && st.imgs === false) return "";
+  let idx = -1;
+  try{ idx = smPlan(st).indexOf(pg); }catch(e){ idx = -1; }
+  if(idx >= 0){
+    const ov = mxPageImgOverride(pg, st, idx);
+    if(ov) return ov.src;
+  }
   return smLibPick(pg, st) || smArtSrc(pg.img, st);
 }
 /* 真正会画出图片的版式（其余版式只放文字） */
@@ -2410,9 +2428,12 @@ function smLayTimeline(pg, idx, st, P){
 function smLayQuote(pg, idx, st, P){
   const a = smDeco(P).concat(smHead(P, pg.kick || "CASE", pg.title, idx));
   const items = (pg.items || []).slice(0, 4);
-  a.push(smRound(SM_M, 2.46, 5.55, 4.2, { r:0.18, fill:{ c:P.ac, a:88 }, line:{ c:P.ac, w:0, a:0 } }));
-  a.push(smText("“", SM_M + 0.3, 2.5, 1.2, 1.1, { fs:92, bold:true, color:P.ac }));
-  a.push(smTitle(pg.quote || pg.sub || pg.title, SM_M + 0.44, 3.5, 4.75, 2.06, 25, { color:P.ink }));
+  const q = String(pg.quote || pg.sub || "").trim();
+  if(q){
+    a.push(smRound(SM_M, 2.46, 5.55, 4.2, { r:0.18, fill:{ c:P.ac, a:88 }, line:{ c:P.ac, w:0, a:0 } }));
+    a.push(smText("“", SM_M + 0.3, 2.5, 1.2, 1.1, { fs:92, bold:true, color:P.ac }));
+    a.push(smTitle(q, SM_M + 0.44, 3.5, 4.75, 2.06, 25, { color:P.ink }));
+  }
   const x = 6.72, w = SM_W - SM_M - x;
   const y0 = 2.52, y1 = 6.42, gap = 0.14;
   const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
@@ -2627,6 +2648,12 @@ function smNormPage(p){
     if(typeof it === "string"){
       it = type === "cards" ? { t:"0" + (i + 1), b:it } : { t:it, b:"" };
     }
+    if(type === "teacher"){
+      const src = String((it && (it.t || it.b || it.l)) || "");
+      const mm = src.match(/(\d+)\s*分钟/);
+      return { t:smCut2(src.replace(/[（(]?\s*\d+\s*分钟\s*[）)]?/g, "").trim(), 10) || "环节",
+        m:mm ? Math.max(1, Math.min(99, +mm[1])) : Math.max(1, Math.min(99, +(it && it.m) || 5)) };
+    }
     const t = smCut2(it && (it.t || it.l), flat ? 34 : 16);
     const b = smCut2(it && it.b, flat ? 34 : 34);
     if(type === "stats") return { n:smCut2(it && it.n, 4) || "0" + (i + 1), l:smCut2(it && (it.l || it.b || it.t), 26) };
@@ -2636,7 +2663,8 @@ function smNormPage(p){
     return { t:t || ("0" + (i + 1)), b:b };
   }).filter(x => (typeof x === "string" ? x : (x.t || x.l || x.n)));
   if(!out.items.length){
-    out.items = type === "support" ? SM_HOTLINE.slice(0) : type === "teacher" ? smSegs(40) : ["要点一", "要点二", "要点三"];
+    const contentTypes = ["agenda","questions","visual","columns","process","timeline","checklist","pulse","stats","cards"];
+    out.items = type === "support" ? SM_HOTLINE.slice(0) : type === "teacher" ? smSegs(40) : (contentTypes.indexOf(type) >= 0 ? ["要点一", "要点二", "要点三"] : []);
   }
   return out;
 }
@@ -2774,61 +2802,19 @@ async function smAiWrite(st){
   }
 }
 /* ---------- 教案解析：本地启发式（无模型也能出片） ---------- */
+/* 素材库：真实文件 + 元数据索引（兼容旧数据） */
 const SM_LIB_KEY = "psy-ppt-imglib-v1";
-const SM_LIB_MAX = 10;
-function smLib(){
-  try{
-    const j = JSON.parse(localStorage.getItem(SM_LIB_KEY) || "[]");
-    return Array.isArray(j) ? j : [];
-  }catch(e){ return []; }
-}
-function smLibSave(list){
-  const a = list.slice(0, SM_LIB_MAX);
-  try{ localStorage.setItem(SM_LIB_KEY, JSON.stringify(a)); }
-  catch(e){
-    while(a.length > 2){
-      a.pop();
-      try{ localStorage.setItem(SM_LIB_KEY, JSON.stringify(a)); return; }catch(e2){}
-    }
-  }
-}
-function smImgFile(file, px){
-  return new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onerror = () => rej(new Error("图片读取失败"));
-    fr.onload = () => {
-      const im = new Image();
-      im.onerror = () => rej(new Error("图片解码失败"));
-      im.onload = () => {
-        const s = Math.min(im.width, im.height);
-        const c = document.createElement("canvas");
-        c.width = c.height = px;
-        const g = c.getContext("2d");
-        g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, px, px);
-        g.drawImage(im, (im.width - s) / 2, (im.height - s) / 2, s, s, 0, 0, px, px);
-        res({ src:c.toDataURL("image/jpeg", 0.74), img:im, w:im.width, h:im.height });
-      };
-      im.src = fr.result;
-    };
-    fr.readAsDataURL(file);
-  });
+const SM_LIB_MAX = 12;
+function smLib(){ return mxImgLib(); }
+function smLibSave(list){ return mxImgSave(list); }
+function smLibStats(){
+  const l = mxImgLib();
+  if(!l.length) return "还没有图片。上传后按主题 / 情绪 / 年级与页面语义匹配；没匹配到就用内置手绘，不伪造素材。";
+  return "已存 " + l.length + " 张：" + l.map(x => x.name).slice(0, 4).join(" / ") + (l.length > 4 ? " …" : "") + "（可按主题/情绪/年级匹配）";
 }
 async function smLibAdd(files){
-  const list = smLib();
-  for(const f of files){
-    if(!/^image\//.test(f.type || "")) continue;
-    try{
-      const r = await smImgFile(f, 720);
-      list.unshift({ name:(f.name || "图片").replace(/\.[a-z0-9]+$/i, ""), src:r.src, at:Date.now() });
-    }catch(e){}
-  }
-  smLibSave(list);
-  return smLib().length;
-}
-function smLibStats(){
-  const l = smLib();
-  if(!l.length) return "还没有图片。上传后按文件名与页面关键词自动匹配；没匹配到就用内置手绘。";
-  return "已存 " + l.length + " 张：" + l.map(x => x.name).slice(0, 4).join(" / ") + (l.length > 4 ? " …" : "") + "（按文件名/关键词匹配）";
+  const r = await mxImgAdd(files, {});
+  return mxImgLib().length;
 }
 /* 热身活动清单：一行一个，兼容 "1. xxx" "• xxx" "（1）xxx" */
 function smWarmList(txt){
@@ -2917,7 +2903,8 @@ function smLessonParse(text, st){
   const relaxItems = (relax.length ? relax : c.relax).slice(0, 4).map(t => smCut2(t, 34));
   const sumItems = (sum.length ? sum : c.sum).slice(0, 3).map((t, i) => ({ n:"0" + (i + 1), l:smCut2(t, 26) }));
   const extItems = (ext.length ? ext : c.ext).slice(0, 3).map((t, i) => ({ t:"0" + (i + 1), b:smCut2(t, 30) }));
-  const wp = smWarmPick(st);
+  const ml = (typeof mxWarmMatch === "function") ? mxWarmMatch(st) : null;
+  const wp = ml ? { act:ml.it.name, score:(ml.score > 0 ? 1 : 0), total:mxWarmLib().length, detail:ml.it } : smWarmPick(st);
   const warmItems = wp ? [smCut2("活动：" + wp.act, 30)].concat((warm.length ? warm : c.goals).slice(0, 2).map(t => smCut2(t, 30)))
                        : (warm.length ? warm.slice(0, 3) : ["最近一周，你因为「" + (st.topic || "这件事") + "」烦过吗？", "当时身体的哪个部位最有反应？", "你已经试过什么办法？管用吗？"]);
   const warmNote = wp
@@ -3106,6 +3093,9 @@ function pptState(){
   if(typeof data.__ppt.warm !== "string") data.__ppt.warm = "";
   if(typeof data.__ppt.imgs !== "boolean") data.__ppt.imgs = true;
   if(!data.__ppt.art) data.__ppt.art = "builtin";
+  if(typeof data.__ppt.pageN !== "number") data.__ppt.pageN = 15;
+  if(!data.__ppt.pageImgs || typeof data.__ppt.pageImgs !== "object") data.__ppt.pageImgs = {};
+  if(typeof data.__ppt.planAuto !== "boolean") data.__ppt.planAuto = false;
   return data.__ppt;
 }
 
@@ -3263,7 +3253,7 @@ function pvSlideHTML(spec, st, idx){
 
 function pvGridHTML(st){
   return pptSlideSpecs(st).map((sp,i)=>
-    `<div class="pv-cell" data-pv="${i}" title="第 ${i+1} 页">${pvSlideHTML(sp, st, i)}<span class="no">${String(i+1).padStart(2,"0")}</span></div>`).join("");
+    `<div class="pv-cell" data-pv="${i}" title="第 ${i+1} 页">${pvSlideHTML(sp, st, i)}<span class="no">${String(i+1).padStart(2,"0")}</span><button class="pv-op" data-pvops="${i}" title="换图 / 单页重排">操作</button></div>`).join("");
 }
 
 /* 放大查看（灯箱）：← → 翻页，Esc 关闭 */
@@ -4098,6 +4088,2035 @@ function aiRefresh(){
 aiLoadCfg();
 llmLoadCfg();
 
+/* ============================================================
+   MX 模块：教学资料解析 / 热身活动库 / 插画素材库 / 质检
+   全部在浏览器本地完成，不依赖后端；不伪造 AI 结果
+   ============================================================ */
+
+/* ---------- 通用小工具 ---------- */
+function mxEsc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+function mxBytes(n){
+  if(n < 1024) return n + " B";
+  if(n < 1048576) return (n / 1024).toFixed(0) + " KB";
+  return (n / 1048576).toFixed(1) + " MB";
+}
+function mxIsCjk(ch){ const c = ch.charCodeAt(0); return c >= 0x4e00 && c <= 0x9fff; }
+function mxCjkRatio(s){
+  const t = String(s || "").replace(/\s/g, "");
+  if(!t) return 0;
+  let n = 0;
+  for(let i = 0; i < t.length; i++){ if(mxIsCjk(t[i])) n++; }
+  return n / t.length;
+}
+function mxU8(str){ return new TextEncoder().encode(String(str)); }
+function mxU16(b, i){ return b[i] | (b[i + 1] << 8); }
+function mxU32(b, i){ return (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0; }
+function mxLatin(b){
+  let s = "";
+  for(let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192));
+  return s;
+}
+function mxUtf8(buf){
+  try{ return new TextDecoder("utf-8").decode(buf); }catch(e){ return mxLatin(buf); }
+}
+
+/* ---------- 解压：ZIP（DOCX / XLSX），优先原生 DecompressionStream ---------- */
+let mxNativeInflateCache = null;
+function mxCanNative(){
+  if(mxNativeInflateCache !== null) return mxNativeInflateCache;
+  try{
+    if(typeof DecompressionStream === "undefined") throw 0;
+    new DecompressionStream("deflate-raw");
+    mxNativeInflateCache = true;
+  }catch(e){ mxNativeInflateCache = false; }
+  return mxNativeInflateCache;
+}
+async function mxNativeInflate(data){
+  const ds = new DecompressionStream("deflate-raw");
+  const w = ds.writable.getWriter();
+  w.write(data); w.close();
+  const ch = [];
+  const r = ds.readable.getReader();
+  for(;;){
+    const v = await r.read();
+    if(v.done) break;
+    ch.push(v.value);
+  }
+  let n = 0; ch.forEach(p => n += p.length);
+  const out = new Uint8Array(n);
+  let o = 0; ch.forEach(p => { out.set(p, o); o += p.length; });
+  return out;
+}
+async function mxUnzip(buf, need){
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let eocd = -1;
+  for(let i = b.length - 22; i >= Math.max(0, b.length - 65558); i--){
+    if(b[i] === 0x50 && b[i+1] === 0x4b && b[i+2] === 0x05 && b[i+3] === 0x06){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error("不是有效的 Office 文件（缺少 ZIP 目录）");
+  const cnt = mxU16(b, eocd + 10), cdOf = mxU32(b, eocd + 16);
+  let p = cdOf;
+  const hits = [], want = need || [];
+  for(let i = 0; i < cnt && p + 46 <= b.length; i++){
+    if(mxU32(b, p) !== 0x02014b50) break;
+    const method = mxU16(b, p + 10), csize = mxU32(b, p + 20);
+    const nlen = mxU16(b, p + 28), xlen = mxU16(b, p + 30), clen = mxU16(b, p + 32);
+    const lof = mxU32(b, p + 42);
+    const name = mxUtf8(b.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    const list = need == null ? [] : want;
+    const hit = need == null || list.some(k => name === k || name.indexOf(k) === 0);
+    if(!hit) continue;
+    if(lof + 30 > b.length) continue;
+    const ln = mxU16(b, lof + 26), lx = mxU16(b, lof + 28);
+    const start = lof + 30 + ln + lx;
+    let raw = b.subarray(start, start + csize);
+    let data;
+    if(method === 0) data = raw;
+    else if(method === 8){
+      if(!mxCanNative()) throw new Error("当前浏览器不支持原生解压，请用新版 Chrome / Edge 打开");
+      data = await mxNativeInflate(raw);
+    }else throw new Error("压缩方式不支持（method " + method + "）");
+    hits.push({ name:name, data:data });
+  }
+  if(!hits.length && need != null) throw new Error("文件里找不到 " + need.join(" / "));
+  return hits;
+}
+
+/* ---------- DOCX 正文 ---------- */
+function mxXmlText(xml){
+  let s = String(xml || "");
+  s = s.replace(/<w:tab\b[^>]*\/>/g, "\t").replace(/<w:br\b[^>]*\/>/g, "\n");
+  s = s.replace(/<\/w:p>/g, "\n").replace(/<\/w:tr>/g, "\n").replace(/<\/w:tc>/g, "\t");
+  s = s.replace(/<[^>]+>/g, "");
+  s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  return s.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function mxDocxText(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const parts = await mxUnzip(buf, ["word/document.xml"]);
+  const xml = mxUtf8(parts[0].data);
+  const txt = mxXmlText(xml);
+  if(!txt) throw new Error("DOCX 里没有可读文字（可能是纯图片文档），请改用课本照片");
+  return txt;
+}
+
+/* ---------- PDF 文字抽取（仅文字型 PDF；扫描版明确失败，不编造） ---------- */
+function mxPdfLiteral(s){
+  let out = "", i = 0;
+  while(i < s.length){
+    let c = s[i];
+    if(c === "\\"){
+      const n = s[i + 1];
+      if(n === "n"){ out += "\n"; i += 2; }
+      else if(n === "r"){ out += "\r"; i += 2; }
+      else if(n === "t"){ out += "\t"; i += 2; }
+      else if(n === "b"){ out += "\b"; i += 2; }
+      else if(n === "f"){ out += "\f"; i += 2; }
+      else if(n === "(" || n === ")" || n === "\\"){ out += n; i += 2; }
+      else if(/[0-7]/.test(n || "")){
+        let oct = "";
+        while(oct.length < 3 && /[0-7]/.test(s[i + 1 + oct.length] || "")) oct += s[i + 1 + oct.length];
+        out += String.fromCharCode(parseInt(oct, 8) & 255);
+        i += 1 + oct.length;
+      }else{ i += 1; }
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+function mxPdfHex(s){
+  const h = String(s || "").replace(/[^0-9a-fA-F]/g, "");
+  let o = "";
+  for(let i = 0; i + 4 <= h.length || i + 2 <= h.length; i += 4){
+    if(i + 4 > h.length) break;
+    o += String.fromCharCode(parseInt(h.substr(i, 4), 16));
+  }
+  return o;
+}
+function mxParseCmap(txt){
+  const map = {};
+  const src = String(txt || "");
+  const addRange = (from, arr) => { arr.forEach((u, k) => { map[(from + k).toString(16)] = u; }); };
+  let m;
+  const reChar = /beginbfchar([\s\S]*?)endbfchar/g;
+  while((m = reChar.exec(src))){
+    const body = m[1];
+    let n;
+    const re = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]*)>/g;
+    while((n = re.exec(body))){
+      const code = parseInt(n[1], 16);
+      let u = "";
+      const hx = n[2];
+      for(let i = 0; i + 4 <= hx.length; i += 4) u += String.fromCharCode(parseInt(hx.substr(i, 4), 16));
+      if(u) map[code.toString(16)] = u;
+    }
+  }
+  const reRange = /beginbfrange([\s\S]*?)endbfrange/g;
+  while((m = reRange.exec(src))){
+    const body = m[1];
+    let n;
+    const re = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*(?:<([0-9a-fA-F]+)>|\[([\s\S]*?)\])/g;
+    while((n = re.exec(body))){
+      const a = parseInt(n[1], 16), z = parseInt(n[2], 16);
+      const cnt = Math.min(z - a + 1, 500);
+      if(n[3] != null){
+        const base = n[3], arr = [];
+        for(let k = 0; k < cnt; k++){
+          let o = "";
+          for(let i = 0; i + 4 <= base.length; i += 4){
+            let v = parseInt(base.substr(i, 4), 16);
+            if(i === base.length - 4) v += k;
+            o += String.fromCharCode(v);
+          }
+          arr.push(o);
+        }
+        addRange(a, arr);
+      }else if(n[4] != null){
+        const arr = [];
+        const inner = n[4], re2 = /<([0-9a-fA-F]+)>/g;
+        let q;
+        while((q = re2.exec(inner))) arr.push(mxPdfHex(q[1]));
+        addRange(a, arr);
+      }
+    }
+  }
+  return map;
+}
+function mxPdfDecode(s, cmap){
+  if(!cmap || !Object.keys(cmap).length) return s;
+  let out = "";
+  for(let i = 0; i + 2 <= s.length; i += 2){
+    const code = (s.charCodeAt(i) << 8) | s.charCodeAt(i + 1);
+    const u = cmap[code.toString(16)];
+    if(u != null) out += u;
+    else{
+      const a = s.charCodeAt(i), b = s.charCodeAt(i + 1);
+      if(a === 0 && b >= 32) out += String.fromCharCode(b);
+      else if(a >= 32 && a < 127 && b === 0) out += String.fromCharCode(a);
+    }
+  }
+  if(!out && s.length) return s;
+  return out;
+}
+function mxPdfContentText(content, cmap){
+  const s = String(content || "");
+  let out = "";
+  const push = t => { if(t) out += t; };
+  let m;
+  const reStr = /\((?:\\.|[^\\()])*\)\s*Tj/g;
+  while((m = reStr.exec(s))){
+    const lit = m[0].slice(1, m[0].lastIndexOf(")"));
+    push(mxPdfDecode(mxPdfLiteral(lit), cmap));
+  }
+  const reHex = /<([0-9a-fA-F\s]+)>\s*Tj/g;
+  while((m = reHex.exec(s))) push(mxPdfDecode(mxPdfHex(m[1]), cmap));
+  const reArr = /\[([\s\S]*?)\]\s*TJ/g;
+  while((m = reArr.exec(s))){
+    const inner = m[1];
+    let q, line = "";
+    const reP = /\((?:\\.|[^\\()])*\)|<[0-9a-fA-F\s]+>/g;
+    while((q = reP.exec(inner))){
+      const tok = q[0];
+      if(tok[0] === "("){
+        line += mxPdfDecode(mxPdfLiteral(tok.slice(1, tok.lastIndexOf(")"))), cmap);
+      }else{
+        line += mxPdfDecode(mxPdfHex(tok.slice(1, -1)), cmap);
+      }
+    }
+    push(line);
+  }
+  const reTd = /\bTd\b|\bTD\b|\bT\*\b/g;
+  const flushLine = () => { if(out && !/\n$/.test(out)) out += "\n"; };
+  let idx = 0, mm;
+  while((mm = reTd.exec(s))){
+    const before = s.slice(idx, mm.index);
+    if(/(?:Tj|TJ)\s*$/.test(before)) flushLine();
+    idx = mm.index;
+  }
+  return out.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function mxPdfText(file){
+  const b = new Uint8Array(await file.arrayBuffer());
+  const lat = mxLatin(b);
+  let cmap = {};
+  const reCM = /stream\r?\n([\s\S]*?)endstream/g;
+  let m;
+  const contents = [];
+  while((m = reCM.exec(lat))){
+    const head = lat.slice(Math.max(0, m.index - 600), m.index);
+    const raw = m[1];
+    const isCM = /ToUnicode|CMap/i.test(head);
+    let data = null;
+    if(/\/FlateDecode/.test(head)){
+      try{
+        const start = m.index + (m[0].indexOf("stream") + 6) + (/\r\n/.test(m[0].slice(m[0].indexOf("stream") + 6, m[0].indexOf("stream") + 8)) ? 2 : 1);
+        const off = start, len = raw.length;
+        const ds = new DecompressionStream("deflate");
+        const w = ds.writable.getWriter();
+        w.write(b.subarray(off, off + len)); w.close();
+        const r = ds.readable.getReader(); const ch = [];
+        for(;;){ const v = await r.read(); if(v.done) break; ch.push(v.value); }
+        let n = 0; ch.forEach(p => n += p.length);
+        const o = new Uint8Array(n); let k = 0; ch.forEach(p => { o.set(p, k); k += p.length; });
+        data = o;
+      }catch(e){ data = null; }
+    }else if(!/\/Filter/.test(head)){
+      data = Uint8Array.from(raw, c => c.charCodeAt(0) & 255);
+    }
+    if(!data) continue;
+    const txt = mxUtf8(data);
+    if(isCM){ const c2 = mxParseCmap(txt); Object.assign(cmap, c2); }
+    else contents.push(txt);
+  }
+  let out = "";
+  for(const c of contents) out += mxPdfContentText(c, cmap) + "\n";
+  out = out.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if(!out) throw new Error("PDF 中没有可提取的文字（多半是扫描件）。请改用课本照片识别，或粘贴文字。");
+  if(mxCjkRatio(out) < 0.12) throw new Error("PDF 文字提取失败（字体编码不受支持，可能是扫描件或图片型 PDF）。请改用课本照片识别，或粘贴文字。");
+  return out;
+}
+
+/* ---------- 教学资料清单（内存态，避免 localStorage 被大图撑爆） ---------- */
+const MX_MATS = [];
+const MX_MAT_EXT = {
+  img:["jpg","jpeg","png","webp","heic","bmp"],
+  doc:["pdf","docx","doc","txt","md"]
+};
+const MX_MAT_LIMIT = 25 * 1048576;
+function mxMatType(file){
+  const name = String(file.name || "");
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  if(/^image\//.test(file.type || "") || MX_MAT_EXT.img.indexOf(ext) >= 0) return "img";
+  if(ext === "pdf") return "pdf";
+  if(ext === "docx") return "docx";
+  if(ext === "txt" || ext === "md") return "txt";
+  if(ext === "doc") return "docold";
+  return "other";
+}
+function mxMatKindName(k){
+  return { img:"课本照片", pdf:"PDF", docx:"DOCX 教案", txt:"文字稿", docold:"旧版 DOC", other:"未知" }[k] || "文件";
+}
+async function mxMatAdd(files){
+  const ok = [], err = [];
+  for(const f of files){
+    const k = mxMatType(f);
+    if(k === "other"){
+      err.push(f.name + "：不支持的类型（可用 JPG/PNG/PDF/DOCX/TXT）");
+      continue;
+    }
+    if(k === "docold"){
+      err.push(f.name + "：旧版 .doc 无法在浏览器解析，请另存为 .docx 或 PDF");
+      continue;
+    }
+    if(f.size > MX_MAT_LIMIT){
+      err.push(f.name + "：" + mxBytes(f.size) + " 超过 25 MB 上限");
+      continue;
+    }
+    if(MX_MATS.length >= 12){
+      err.push(f.name + "：资料最多 12 份，先删除不用的");
+      continue;
+    }
+    if(MX_MATS.some(x => x.name === f.name && x.size === f.size)){
+      err.push(f.name + "：已在列表中");
+      continue;
+    }
+    const m = { id:"m" + Date.now() + Math.random().toString(36).slice(2, 6), name:f.name, size:f.size, kind:k, file:f, status:"pending", msg:"待解析", text:"" };
+    if(k === "img"){
+      try{
+        const r = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onerror = () => rej(new Error("图片读取失败"));
+          fr.onload = () => {
+            const im = new Image();
+            im.onerror = () => rej(new Error("图片解码失败，可能是格式不受支持"));
+            im.onload = () => {
+              const W = 1280, sc = Math.min(1, W / im.width);
+              const c = document.createElement("canvas");
+              c.width = Math.max(1, Math.round(im.width * sc));
+              c.height = Math.max(1, Math.round(im.height * sc));
+              c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+              res({ src:c.toDataURL("image/jpeg", 0.82), w:im.width, h:im.height });
+            };
+            im.src = fr.result;
+          };
+          fr.readAsDataURL(f);
+        });
+        m.thumb = r.src; m.w = r.w; m.h = r.h;
+      }catch(e){
+        err.push(f.name + "：" + (e && e.message || "无法预览"));
+        continue;
+      }
+    }
+    MX_MATS.push(m);
+    ok.push(m);
+  }
+  return { ok:ok, errors:err };
+}
+function mxMatDel(id){
+  const i = MX_MATS.findIndex(x => x.id === id);
+  if(i >= 0) MX_MATS.splice(i, 1);
+}
+function mxMatMove(id, d){
+  const i = MX_MATS.findIndex(x => x.id === id);
+  const j = i + d;
+  if(i < 0 || j < 0 || j >= MX_MATS.length) return;
+  const t = MX_MATS[i]; MX_MATS[i] = MX_MATS[j]; MX_MATS[j] = t;
+}
+/* 单份资料 → 文字；图片必须配置视觉模型 */
+async function mxMatParse(m, st){
+  m.status = "reading"; m.msg = "正在读取…";
+  try{
+    if(m.kind === "txt"){
+      m.text = (await m.file.text()).trim();
+    }else if(m.kind === "docx"){
+      m.msg = "正在解压 DOCX…";
+      m.text = await mxDocxText(m.file);
+    }else if(m.kind === "pdf"){
+      m.msg = "正在抽取 PDF 文字…";
+      m.text = await mxPdfText(m.file);
+    }else if(m.kind === "img"){
+      if(!llmReady()) throw new Error("照片需要视觉模型：请先在「API 配置」填接口地址、模型和 Key");
+      m.msg = "正在识别照片…（约 5–15 秒）";
+      const txt = await mxOcrOne(m, st);
+      m.text = txt;
+    }else{
+      throw new Error("暂不支持的类型");
+    }
+    if(!String(m.text || "").trim()) throw new Error("没有解析出文字，请补充文字稿");
+    m.status = "ok";
+    m.msg = "已解析 " + String(m.text).replace(/\s/g, "").length + " 字";
+  }catch(e){
+    m.status = "err";
+    m.msg = (e && e.message) ? e.message : String(e);
+  }
+  return m.status === "ok";
+}
+async function mxOcrOne(m, st){
+  const url = llmUrl();
+  if(!url) throw new Error("未配置接口地址");
+  const model = (PPT_LLM.vmodel || PPT_LLM.model || "").trim();
+  if(!model) throw new Error("未配置视觉模型");
+  if(m.thumb && MX_MATS.findIndex(x => x.kind === "img") === MX_MATS.indexOf(m)){
+    const im = await mxThumbImage(m.thumb);
+    if(im){
+      const pal = srPalette(im);
+      if(pal){ data.__pptStyleRef = { palette:pal, thumb:srThumb(im) }; srApply(); st.theme = "custom"; store.save(); }
+    }
+  }
+  const body = { model:model, temperature:0.1, messages:[
+    { role:"system", content:"你是教材文字识别助手。只转录图片中真实存在的文字，不补充、不推测；看不清处写「（此处模糊）」。按 课程标题/教学目标/重点/难点/教学过程/课堂活动/案例/小结/作业 分段输出，保留原文用词。" },
+    { role:"user", content:[
+      { type:"text", text:"识别这张课本或教案照片，输出可直接使用的教案文字。第 " + (MX_MATS.filter(x => x.kind === "img").indexOf(m) + 1) + " 张。" },
+      { type:"image_url", image_url:{ url:m.thumb } }
+    ] }
+  ] };
+  const r = await aiFetch(url, { method:"POST", headers:{ "Content-Type":"application/json", "Authorization":"Bearer " + PPT_LLM.key }, body:JSON.stringify(body) }, 180000);
+  const text = await r.text();
+  if(!r.ok){
+    if(r.status === 401 || r.status === 403) throw new Error("视觉模型 Key 无效（" + r.status + "）");
+    throw new Error(aiHttpMsg(r.status, text, url));
+  }
+  let j; try{ j = JSON.parse(text); }catch(e){ throw new Error("接口返回的不是 JSON，检查模型是否支持图片输入"); }
+  const msg = j.choices && j.choices[0] && j.choices[0].message;
+  const txt = msg ? (typeof msg.content === "string" ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p => p && p.text || "").join("") : "")) : "";
+  if(!String(txt).trim()) throw new Error("模型没有返回文字");
+  if(/无法识别|完全看不清|图片过于模糊/.test(txt) && String(txt).replace(/此处模糊/g, "").trim().length < 120){
+    throw new Error("照片太模糊，识别不出可用内容，请重拍（正对页面、光线充足）");
+  }
+  return String(txt).trim();
+}
+function mxThumbImage(src){
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+async function mxMatParseAll(st, onStep){
+  const list = MX_MATS.slice();
+  if(!list.length) return { ok:0, fail:0, text:"" };
+  let ok = 0, fail = 0;
+  for(let i = 0; i < list.length; i++){
+    if(onStep) onStep(i, list.length, list[i]);
+    const good = await mxMatParse(list[i], st);
+    if(good) ok++; else fail++;
+  }
+  return { ok:ok, fail:fail, text:mxMatText() };
+}
+function mxMatText(){
+  return MX_MATS.filter(m => m.status === "ok" && String(m.text || "").trim())
+    .map((m, i) => "【资料 " + (i + 1) + " · " + m.name + "】\n" + String(m.text).trim()).join("\n\n");
+}
+function mxMatStats(){
+  if(!MX_MATS.length) return "还没有教学资料。可上传课本照片、PDF、DOCX 教案或 TXT。";
+  const ok = MX_MATS.filter(m => m.status === "ok").length;
+  return "共 " + MX_MATS.length + " 份 · 已解析 " + ok + " 份" + (ok < MX_MATS.length ? " · 其余待解析" : "");
+}
+
+
+/* ---------- XLSX 读写（本地，零依赖）：STORE 方式打包，inlineStr 单元格 ---------- */
+function mxCrcTable(){
+  if(mxCrcTable.t) return mxCrcTable.t;
+  const t = new Uint32Array(256);
+  for(let n = 0; n < 256; n++){
+    let c = n;
+    for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return (mxCrcTable.t = t);
+}
+function mxCrc32(u8){
+  const t = mxCrcTable();
+  let c = 0xFFFFFFFF;
+  for(let i = 0; i < u8.length; i++) c = t[(c ^ u8[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function mxZip(files){
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let off = 0;
+  const D = new Date();
+  const dosTime = ((D.getHours() & 31) << 11) | ((D.getMinutes() & 63) << 5) | ((D.getSeconds() / 2) & 31);
+  const dosDate = (((D.getFullYear() - 1980) & 127) << 9) | (((D.getMonth() + 1) & 15) << 5) | (D.getDate() & 31);
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = f.data instanceof Uint8Array ? f.data : enc.encode(String(f.data));
+    const crc = mxCrc32(data);
+    const lh = new Uint8Array(30 + name.length);
+    const dv = new DataView(lh.buffer);
+    dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0x0800, true);
+    dv.setUint16(8, 0, true); dv.setUint16(10, dosTime, true); dv.setUint16(12, dosDate, true);
+    dv.setUint32(14, crc, true); dv.setUint32(18, data.length, true); dv.setUint32(22, data.length, true);
+    dv.setUint16(26, name.length, true); dv.setUint16(28, 0, true);
+    lh.set(name, 30);
+    parts.push(lh, data);
+    const cd = new Uint8Array(46 + name.length);
+    const cv = new DataView(cd.buffer);
+    cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true); cv.setUint16(10, 0, true);
+    cv.setUint16(12, dosTime, true); cv.setUint16(14, dosDate, true);
+    cv.setUint32(16, crc, true); cv.setUint32(20, data.length, true); cv.setUint32(24, data.length, true);
+    cv.setUint16(28, name.length, true); cv.setUint32(42, off, true);
+    cd.set(name, 46);
+    central.push(cd);
+    off += lh.length + data.length;
+  });
+  let cLen = 0; central.forEach(c => cLen += c.length);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true); ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cLen, true); ev.setUint32(16, off, true);
+  const total = off + cLen + 22;
+  const out = new Uint8Array(total);
+  let p = 0;
+  parts.forEach(x => { out.set(x, p); p += x.length; });
+  central.forEach(x => { out.set(x, p); p += x.length; });
+  out.set(end, p);
+  return out;
+}
+function mxXlsxEsc(s){
+  return String(s == null ? "" : s).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function mxXlsxSheet(rows){
+  const body = rows.map((r, ri) => {
+    const cells = r.map((v, ci) => {
+      const ref = String.fromCharCode(65 + ci) + (ri + 1);
+      return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + mxXlsxEsc(v) + '</t></is></c>';
+    }).join("");
+    return '<row r="' + (ri + 1) + '">' + cells + "</row>";
+  }).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' + body + "</sheetData></worksheet>";
+}
+function mxXlsxBuild(rows, sheetName){
+  const files = [
+    { name:"[Content_Types].xml", data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>' },
+    { name:"_rels/.rels", data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name:"xl/workbook.xml", data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="' + mxXlsxEsc(sheetName || "Sheet1") + '" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name:"xl/_rels/workbook.xml.rels", data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>' },
+    { name:"xl/worksheets/sheet1.xml", data:mxXlsxSheet(rows) }
+  ];
+  return mxZip(files);
+}
+function mxXmlUnesc(s){
+  return String(s == null ? "" : s).replace(/&#(\d+);/g, (m, d) => String.fromCharCode(+d))
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+}
+function mxXlsxReadRows(xml, shared){
+  const rows = [];
+  const reRow = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  let m;
+  while((m = reRow.exec(xml))){
+    const cells = [];
+    const reC = /<c\b([^>]*)>([\s\S]*?)<\/c>/g;
+    let q;
+    while((q = reC.exec(m[1]))){
+      const attrs = q[1], inner = q[2];
+      const ref = (attrs.match(/\br="([A-Z]+)\d+"/) || [])[1] || "";
+      let ci = 0;
+      for(let i = 0; i < ref.length; i++) ci = ci * 26 + (ref.charCodeAt(i) - 64);
+      ci = Math.max(0, ci - 1);
+      let v = "";
+      const t = (attrs.match(/\bt="([^"]+)"/) || [])[1] || "";
+      if(t === "inlineStr"){
+        const parts = inner.match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
+        v = parts.map(x => mxXmlUnesc(x.replace(/<[^>]+>/g, ""))).join("");
+      }else{
+        const vv = inner.match(/<v>([\s\S]*?)<\/v>/);
+        if(vv){
+          v = mxXmlUnesc(vv[1]);
+          if(t === "s") v = shared[+v] || "";
+        }
+      }
+      cells[ci] = v;
+    }
+    if(cells.length) rows.push(cells.map(x => x == null ? "" : x));
+  }
+  return rows;
+}
+async function mxXlsxRead(file){
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const parts = await mxUnzip(buf, null);
+  const sharedXml = parts.find(p => /sharedStrings\.xml$/.test(p.name));
+  const sheet = parts.find(p => /worksheets\/sheet1\.xml$/.test(p.name)) || parts.find(p => /worksheets\//.test(p.name));
+  if(!sheet) throw new Error("Excel 里没有工作表");
+  const shared = [];
+  if(sharedXml){
+    const s = mxUtf8(sharedXml.data);
+    const re = /<si>([\s\S]*?)<\/si>/g;
+    let m;
+    while((m = re.exec(s))){
+      const parts2 = m[1].match(/<t\b[^>]*>([\s\S]*?)<\/t>/g) || [];
+      shared.push(parts2.map(x => mxXmlUnesc(x.replace(/<[^>]+>/g, ""))).join(""));
+    }
+  }
+  return mxXlsxReadRows(mxUtf8(sheet.data), shared);
+}
+function mxCsvRows(text){
+  const rows = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach(line => {
+    if(!line.trim()) return;
+    const cells = [];
+    let cur = "", q = false;
+    for(let i = 0; i < line.length; i++){
+      const c = line[i];
+      if(q){
+        if(c === '"' && line[i + 1] === '"'){ cur += '"'; i++; }
+        else if(c === '"') q = false;
+        else cur += c;
+      }else if(c === '"') q = true;
+      else if(c === "," || c === "\t"){ cells.push(cur); cur = ""; }
+      else cur += c;
+    }
+    cells.push(cur);
+    rows.push(cells);
+  });
+  return rows;
+}
+function mxDownload(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { try{ URL.revokeObjectURL(a.href); a.remove(); }catch(e){} }, 1200);
+}
+
+/* ---------- 热身活动库 ---------- */
+const MX_WARM_KEY = "psy-ppt-warmlib-v1";
+const MX_WARM_COLS = ["活动名称","主题标签","适用年级","时长(分钟)","人数","道具","活动步骤","教师引导语","复盘问题","注意事项","来源"];
+function mxWarmLib(){
+  try{
+    const j = JSON.parse(localStorage.getItem(MX_WARM_KEY) || "[]");
+    return Array.isArray(j) ? j : [];
+  }catch(e){ return []; }
+}
+function mxWarmSave(list){
+  try{ localStorage.setItem(MX_WARM_KEY, JSON.stringify(list.slice(0, 300))); return true; }
+  catch(e){ return false; }
+}
+function mxWarmUpsert(it){
+  const list = mxWarmLib();
+  if(!it.id) it.id = "w" + Date.now() + Math.random().toString(36).slice(2, 5);
+  it.at = Date.now();
+  const i = list.findIndex(x => x.id === it.id);
+  if(i >= 0) list[i] = it; else list.unshift(it);
+  return mxWarmSave(list);
+}
+function mxWarmDel(id){
+  mxWarmSave(mxWarmLib().filter(x => x.id !== id));
+}
+function mxWarmSplit(s){
+  return String(s || "").split(/[,，;；、/|\s]+/).map(x => x.trim()).filter(Boolean);
+}
+function mxWarmFromRow(r){
+  const g = a => String(a || "").trim();
+  const nm = g(r[0]);
+  if(!nm) return null;
+  return {
+    id:"", name:nm, themes:mxWarmSplit(r[1]), grades:mxWarmSplit(r[2]),
+    minutes:parseInt(String(r[3]).replace(/[^\d]/g, ""), 10) || 5,
+    people:g(r[4]), props:g(r[5]), steps:g(r[6]), script:g(r[7]),
+    reflect:g(r[8]), notes:g(r[9]), src:g(r[10]) || "导入", at:0
+  };
+}
+function mxWarmImportRows(rows){
+  if(!rows || !rows.length) throw new Error("表格是空的");
+  let start = 0;
+  if(String(rows[0][0] || "").indexOf("活动") >= 0 || String(rows[0][1] || "").indexOf("主题") >= 0) start = 1;
+  const list = mxWarmLib();
+  let add = 0, skip = 0;
+  for(let i = start; i < rows.length; i++){
+    const it = mxWarmFromRow(rows[i]);
+    if(!it){ continue; }
+    if(list.some(x => x.name === it.name)){ skip++; continue; }
+    it.id = "w" + Date.now() + Math.random().toString(36).slice(2, 6);
+    it.at = Date.now();
+    list.push(it); add++;
+  }
+  const saved = mxWarmSave(list);
+  return { add:add, skip:skip, total:list.length, saved:saved };
+}
+function mxWarmExport(){
+  const list = mxWarmLib();
+  if(!list.length) throw new Error("活动库是空的，先导入或新增一条");
+  const rows = [MX_WARM_COLS].concat(list.map(x => [
+    x.name, (x.themes || []).join("，"), (x.grades || []).join("，"), x.minutes || "",
+    x.people || "", x.props || "", x.steps || "", x.script || "", x.reflect || "", x.notes || "", x.src || ""
+  ]));
+  mxDownload(new Blob([mxXlsxBuild(rows, "热身活动库")], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    "心理课堂热身活动库_" + isoToday() + ".xlsx");
+}
+/* 关键词/年级/时长打分，给出可解释的匹配理由 */
+const MX_WARM_KEYS = ["情绪","焦虑","压力","考试","人际","沟通","青春期","适应","生涯","自我","专注","放松","信任","合作","倾听","表达","拒绝","边界","感恩","自信","注意力","亲子","同伴","挫折","生命","网络"];
+function mxTopicWords(st){
+  const src = [st.topic || "", st.req || "", (st.goals || "")].join(" ");
+  return MX_WARM_KEYS.filter(w => src.indexOf(w) >= 0);
+}
+function mxWarmScore(it, st){
+  const topic = String(st.topic || "");
+  const plan = String(st.plan || "").slice(0, 6000) + " " + String(st.req || "");
+  const grade = String(st.grade || "");
+  const words = mxTopicWords(st);
+  let score = 0;
+  const hits = [];
+  (it.themes || []).forEach(t => {
+    if(!t) return;
+    if(topic && (topic.indexOf(t) >= 0 || t.indexOf(topic) >= 0)){ score += 6; hits.push("主题「" + t + "」"); }
+    else if(plan.indexOf(t) >= 0){ score += 3; hits.push("教案提到「" + t + "」"); }
+  });
+  words.forEach(w => {
+    if((it.name + " " + (it.themes || []).join(" ") + " " + it.steps).indexOf(w) >= 0 && !hits.some(h => h.indexOf(w) >= 0)){
+      score += 2; hits.push("关键词「" + w + "」");
+    }
+  });
+  if(grade && (it.grades || []).some(g => g === grade || (grade.indexOf(g) >= 0 || g.indexOf(grade) >= 0))){ score += 3; hits.push("适用" + grade); }
+  if(grade && (it.grades || []).length && !(it.grades || []).some(g => g === grade || (grade.indexOf(g) >= 0 || g.indexOf(grade) >= 0))){ score -= 2; }
+  const m = it.minutes || 5, want = Math.max(3, Math.min(10, Math.round((st.minutes || 40) * 0.12)));
+  if(m <= want) score += 2; else score -= 1;
+  if(it.props && /准备|道具|卡片|纸|音乐/.test(it.props) && /无道具|不用道具/.test(String(st.req || ""))) score -= 2;
+  return { score:score, hits:hits, want:want };
+}
+function mxWarmMatch(st){
+  const list = mxWarmLib();
+  if(!list.length) return null;
+  let best = null, bs = -999;
+  list.forEach(it => {
+    const r = mxWarmScore(it, st);
+    if(r.score > bs){ bs = r.score; best = { it:it, score:r.score, hits:r.hits, want:r.want }; }
+  });
+  return best;
+}
+function mxWarmReason(m, st){
+  if(!m) return "";
+  const hits = m.hits.slice(0, 3);
+  return "匹配「" + (st.topic || "本课") + "」：" + (hits.length ? hits.join("、") : "无强关键词，按通用开场采用") +
+    "；活动约 " + (m.it.minutes || 5) + " 分钟（本课建议热身 " + m.want + " 分钟）";
+}
+
+/* ---------- 插画素材库（元数据） ---------- */
+const MX_IMG_KEY = "psy-ppt-imglib-v1";
+const MX_IMG_MAX = 12;
+const MX_IMG_EMO = ["中性","开心","紧张","低落","生气","平静"];
+const MX_IMG_STY = ["卡通","手绘","扁平","实拍","其他"];
+function mxImgLib(){
+  let list = [];
+  try{
+    const j = JSON.parse(localStorage.getItem(MX_IMG_KEY) || "[]");
+    if(Array.isArray(j)) list = j;
+  }catch(e){}
+  return list.map(x => Object.assign({
+    id:"i" + (x.at || Date.now()), name:x.name || "未命名", src:x.src || "", theme:x.theme || "",
+    emotion:x.emotion || "中性", grade:x.grade || "", style:x.style || "卡通",
+    source:x.source || "本机上传", license:x.license || "仅限本课使用", at:x.at || Date.now()
+  }, x, { id:x.id || ("i" + (x.at || Date.now())) }));
+}
+function mxImgSave(list){
+  const a = list.slice(0, MX_IMG_MAX);
+  try{ localStorage.setItem(MX_IMG_KEY, JSON.stringify(a)); return true; }
+  catch(e){
+    while(a.length > 2){
+      a.pop();
+      try{ localStorage.setItem(MX_IMG_KEY, JSON.stringify(a)); return true; }catch(e2){}
+    }
+    return false;
+  }
+}
+async function mxImgAdd(files, meta){
+  const list = mxImgLib();
+  let add = 0, skipped = 0;
+  for(const f of files){
+    if(!/^image\//.test(f.type || "")){ skipped++; continue; }
+    if(f.size > 12 * 1048576){ skipped++; continue; }
+    try{
+      const r = await smImgFile(f, 720);
+      list.unshift(Object.assign({
+        id:"i" + Date.now() + Math.random().toString(36).slice(2, 5),
+        name:(f.name || "图片").replace(/\.[a-z0-9]+$/i, ""), src:r.src, theme:"", emotion:"中性",
+        grade:"", style:"卡通", source:"本机上传", license:"仅限本课使用", at:Date.now()
+      }, meta || {}));
+      add++;
+    }catch(e){ skipped++; }
+  }
+  const saved = mxImgSave(list);
+  return { add:add, skipped:skipped, total:mxImgLib().length, saved:saved };
+}
+function mxImgReplace(id, file){
+  return new Promise(async (res, rej) => {
+    try{
+      const r = await smImgFile(file, 720);
+      const list = mxImgLib();
+      const it = list.find(x => x.id === id);
+      if(!it) throw new Error("素材不存在");
+      it.src = r.src; it.name = (file.name || it.name).replace(/\.[a-z0-9]+$/i, ""); it.at = Date.now();
+      mxImgSave(list);
+      res(true);
+    }catch(e){ rej(e); }
+  });
+}
+function mxImgDel(id){
+  mxImgSave(mxImgLib().filter(x => x.id !== id));
+}
+/* 页面语义 → 图片打分 */
+const MX_IMG_TYPE_HINT = {
+  cover:["主题", "课程"], statement:["观点", "想法"], visual:["知识", "讲解"],
+  quote:["案例", "沟通"], cards:["活动", "体验"], pulse:["放松", "平静"],
+  checklist:["方法", "行动"], stats:["总结"], end:["陪伴", "温暖"]
+};
+function mxImgScore(it, pg, st){
+  let score = 0;
+  const txt = smPageText(pg) + " " + (st.topic || "");
+  const theme = String(it.theme || "");
+  if(theme && txt.indexOf(theme) >= 0) score += 5;
+  (it.name || "").split(/[\s_\-]+/).filter(w => w.length >= 2).forEach(w => { if(txt.indexOf(w) >= 0) score += 2; });
+  const hints = MX_IMG_TYPE_HINT[pg.type] || [];
+  hints.forEach(h => { if(theme.indexOf(h) >= 0 || (it.name || "").indexOf(h) >= 0) score += 2; });
+  const emo = it.emotion || "";
+  if(emo && emo !== "中性"){
+    const map = { "开心":["开心","快乐","成功","优点","自信","希望","感恩"], "紧张":["焦虑","紧张","压力","考试","害怕","担心"],
+      "低落":["低落","难过","失落","挫折","悲伤","孤独"], "生气":["生气","愤怒","冲突","矛盾","欺负"], "平静":["放松","平静","呼吸","安静","正念"] };
+    (map[emo] || []).forEach(w => { if(txt.indexOf(w) >= 0) score += 3; });
+  }
+  const g = String(it.grade || "");
+  if(g && st.grade && (g.indexOf(st.grade) >= 0 || st.grade.indexOf(g) >= 0)) score += 2;
+  return score;
+}
+function mxImgPick(pg, st){
+  if(st && st.imgs === false) return null;
+  const list = mxImgLib();
+  if(!list.length) return null;
+  let best = null, bs = 0;
+  list.forEach(it => { const v = mxImgScore(it, pg, st); if(v > bs){ bs = v; best = it; } });
+  return best ? { img:best, score:bs } : null;
+}
+/* 页级覆盖：st.pageImgs[idx] = {kind:"lib", id} | {kind:"art", role} | {kind:"none"} | {kind:"mat", mid} */
+function mxPageImgOverride(pg, st, idx){
+  const ov = st && st.pageImgs && st.pageImgs[idx];
+  if(!ov) return null;
+  if(ov.kind === "none") return { src:"", kind:"none" };
+  if(ov.kind === "lib"){
+    const it = mxImgLib().find(x => x.id === ov.id);
+    return it ? { src:it.src, kind:"lib", item:it } : null;
+  }
+  if(ov.kind === "mat"){
+    const m = MX_MATS.find(x => x.id === ov.mid && x.kind === "img");
+    return m ? { src:m.thumb, kind:"mat" } : null;
+  }
+  if(ov.kind === "art") return { src:smArtSrc(ov.role, st), kind:"art", role:ov.role };
+  return null;
+}
+
+
+/* ---------- 弹层（替换图片 / 编辑素材元数据 / 活动详情） ---------- */
+function mxDialog(html, wide){
+  const box = document.createElement("div");
+  box.className = "mx-overlay";
+  box.innerHTML = '<div class="mx-dlg' + (wide ? " wide" : "") + '"><button class="mx-x" data-mxclose="1">关闭</button>' + html + "</div>";
+  document.body.appendChild(box);
+  box.addEventListener("click", e => {
+    if(e.target === box || e.target.closest("[data-mxclose]")) box.remove();
+  });
+  return box;
+}
+const MX_CSS = `
+.mx-overlay{position:fixed;inset:0;background:rgba(24,28,36,.42);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px}
+.mx-dlg{background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:86vh;overflow:auto;padding:22px 22px 18px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.22)}
+.mx-dlg.wide{max-width:820px}
+.mx-x{position:absolute;right:12px;top:10px;border:0;background:#F2EFE9;color:#555;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer}
+.mx-dlg h4{margin:0 0 6px;font-size:16px}
+.mx-dlg p.hint{color:#7A7468;font-size:12px;line-height:1.7;margin:0 0 12px}
+.mx-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.mx-thumb{border:1px solid #E6E0D6;border-radius:10px;overflow:hidden;cursor:pointer;background:#FAF8F4;position:relative}
+.mx-thumb img{display:block;width:100%;height:96px;object-fit:cover}
+.mx-thumb span{display:block;font-size:11px;color:#6B6558;padding:5px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mx-thumb.on{outline:2px solid #8C7B62}
+.mx-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.mx-btn{border:1px solid #DCD4C6;background:#fff;border-radius:9px;padding:7px 13px;font-size:12px;cursor:pointer;color:#4A443A}
+.mx-btn:hover{background:#F7F3EA}
+.mx-btn.primary{background:#2F2B24;border-color:#2F2B24;color:#fff}
+.mx-list{list-style:none;margin:0;padding:0}
+.mx-list li{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px dashed #EEE8DC;font-size:12px}
+.mx-list li:last-child{border-bottom:0}
+.mx-list .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:20px;background:#F1EDE4;color:#6B6558;margin-left:4px}
+.mx-mini{font-size:11px;color:#8A8375}
+.mx-seg{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.mx-seg .o{border:1px solid #E2DBCE;border-radius:20px;padding:4px 10px;font-size:11px;cursor:pointer;color:#5B5548;background:#fff}
+.mx-seg .o.on{background:#2F2B24;color:#fff;border-color:#2F2B24}
+.mx-field{display:flex;gap:8px;margin-bottom:8px}
+.mx-field label{width:66px;flex:0 0 auto;font-size:12px;color:#6B6558;padding-top:7px}
+.mx-field input,.mx-field select,.mx-field textarea{flex:1;min-width:0;border:1px solid #E2DBCE;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:#fff}
+.mx-field textarea{min-height:64px;resize:vertical}
+.mx-mat{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px dashed #EEE8DC}
+.mx-mat:last-child{border-bottom:0}
+.mx-mat img{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid #E6E0D6;background:#F6F2EA}
+.mx-mat .ico{width:44px;height:44px;border-radius:8px;background:#F1EDE4;display:flex;align-items:center;justify-content:center;font-size:10px;color:#7A7468;font-weight:700}
+.mx-mat .mt{flex:1;min-width:0}
+.mx-mat .nm{font-size:12px;color:#3A352D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mx-mat .st{font-size:11px;color:#8A8375;margin-top:2px}
+.mx-mat .st.ok{color:#3F7A5A}.mx-mat .st.err{color:#C2410C}.mx-mat .st.reading{color:#8C6D2F}
+.mx-mat .ops{display:flex;gap:4px}
+.mx-mat .ops button{border:0;background:#F1EDE4;color:#5B5548;border-radius:6px;width:24px;height:24px;font-size:11px;cursor:pointer}
+.mx-qa{list-style:none;margin:0;padding:0}
+.mx-qa li{padding:6px 0;border-bottom:1px dashed #EEE8DC;font-size:12px;line-height:1.6;display:flex;gap:8px}
+.mx-qa .dot{width:8px;height:8px;border-radius:50%;margin-top:6px;flex:0 0 auto;background:#C9C1B2}
+.mx-qa .ok{background:#4E8C68}.mx-qa .warn{background:#C79A3C}.mx-qa .bad{background:#C25B3C}
+.mx-stage{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mx-stage i{font-style:normal;font-size:10px;padding:3px 8px;border-radius:20px;background:#F1EDE4;color:#8A8375}
+.mx-stage i.act{background:#E8DCBF;color:#6B5320}
+.mx-stage i.done{background:#DCEBE0;color:#3F7A5A}
+.mx-stage i.err{background:#F6DCD2;color:#C2410C}
+.mx-kv{font-size:11px;color:#8A8375;margin-top:6px}
+.pv-cell .pv-op{position:absolute;right:6px;top:6px;z-index:4;border:0;border-radius:6px;background:rgba(255,255,255,.92);color:#444;font-size:11px;padding:2px 6px;cursor:pointer;opacity:0;transition:opacity .15s}
+.pv-cell:hover .pv-op{opacity:1}
+.mx-pre{display:flex;gap:8px;flex-wrap:wrap}
+`;
+function mxStyleInject(){
+  if(document.getElementById("mx-css")) return;
+  const s = document.createElement("style");
+  s.id = "mx-css"; s.textContent = MX_CSS;
+  document.head.appendChild(s);
+}
+
+/* ---------- 质量检查（基于真实页面结构与生成结果） ---------- */
+function mxQaPages(st, pages){
+  const out = [];
+  const add = (k, lv, msg, fix) => out.push({ k:k, lv:lv, msg:msg, fix:fix || "" });
+  const n = pages.length, want = Math.max(10, Math.min(18, st.pageN || 15));
+  if(n < 10) add("页数", "bad", "只有 " + n + " 页，低于可用下限 10 页", "补齐内容页");
+  else if(Math.abs(n - want) > 2) add("页数", "warn", "现有 " + n + " 页，设置要求 " + want + " 页", "按设置增删内容页");
+  else add("页数", "ok", "共 " + n + " 页，符合设置（" + want + " 页）");
+  const blank = pages.filter(p => !String(p.title || "").trim() && !(p.items || []).length);
+  add("空白页", blank.length ? "bad" : "ok", blank.length ? "有 " + blank.length + " 页没有标题和内容" : "没有空白页", blank.length ? "补标题与要点" : "");
+  const seen = {}, dupe = [];
+  pages.forEach(p => {
+    const t = String(p.title || "").trim();
+    if(t && seen[t]) dupe.push(t);
+    seen[t] = 1;
+  });
+  add("重复标题", dupe.length ? "warn" : "ok", dupe.length ? "重复标题：" + dupe.slice(0, 3).join(" / ") : "标题不重复", dupe.length ? "改写重复标题" : "");
+  const flat = pages.filter(p => ["support","teacher","end"].indexOf(p.type) < 0);
+  const dense = flat.filter(p => {
+    const len = (p.items || []).map(x => typeof x === "string" ? x : [x.t, x.b, x.l, x.n].join(" ")).join("").length;
+    return len > 260;
+  });
+  add("文字密度", dense.length ? "warn" : "ok", dense.length ? dense.length + " 页文字偏多（已自动缩字，仍建议精简）" : "文字量适中，排版不会溢出", dense.length ? "精简到 3 条以内" : "");
+  const imgTypes = flat.filter(p => ["cover","statement","visual","end"].indexOf(p.type) >= 0);
+  const noImg = imgTypes.filter(p => !smImgSrc(p, st));
+  const libN0 = mxImgLib().length;
+  add("配图", noImg.length ? "warn" : "ok",
+    noImg.length ? noImg.length + " 个需要插画的页面没有匹配到图片（不会硬塞无关图）"
+      : (libN0 ? "需要插画的页面都已匹配到图片（素材库 " + libN0 + " 张）" : "素材库为空，需要插画的页面使用内置手绘（未伪造素材匹配）"),
+    noImg.length && libN0 ? "从素材库手动指定" : (noImg.length ? "上传素材库图片" : ""));
+  const est = Math.round(n * (st.style === "smart" ? 2.4 : 2.8));
+  const diff = Math.abs(est - (st.minutes || 40)) / (st.minutes || 40);
+  add("课堂时长", diff > 0.28 ? "warn" : "ok", "按每页约 " + (st.style === "smart" ? 2.4 : 2.8) + " 分钟估算共 " + est + " 分钟，设置 " + (st.minutes || 40) + " 分钟",
+    diff > 0.28 ? "增删内容页或调整环节" : "");
+  const wm = mxWarmMatch(st);
+  add("热身活动", wm ? "ok" : "warn", wm ? "已匹配《" + wm.it.name + "》（" + (wm.it.minutes || 5) + " 分钟）" : "活动库为空或没有合适的活动，将使用本地提问开场",
+    wm ? "" : "导入热身活动库");
+  const plan = String(st.plan || "");
+  const keys = [];
+  plan.replace(/(?:教学目标|重点|难点)[:：]?\s*([^\n]{4,40})/g, (m, a) => {
+    a.split(/[，。；、,;]/).forEach(x => { const t = x.trim(); if(t.length >= 3 && t.length <= 12) keys.push(t); });
+  });
+  const body = pages.map(p => smPageText(p)).join(" ");
+  const miss = keys.filter(k => body.indexOf(k) < 0).slice(0, 4);
+  if(keys.length) add("知识点覆盖", miss.length ? "warn" : "ok", miss.length ? "教案要点未直接出现：" + miss.join(" / ") : "教案关键点在页面中均有落点", miss.length ? "补充到对应页正文" : "");
+  const itemSeen = {}, dupItems = [];
+  pages.forEach(p => (p.items || []).forEach(x => {
+    const t = String(typeof x === "string" ? x : (x.t || x.b || x.l || "")).trim();
+    if(t.length >= 6){ if(itemSeen[t]) dupItems.push(t); itemSeen[t] = 1; }
+  }));
+  add("内容重复", dupItems.length ? "warn" : "ok", dupItems.length ? "重复要点：" + dupItems.slice(0, 2).join(" / ") : "同一要点没有跨页重复", dupItems.length ? "改写重复要点" : "");
+  return out;
+}
+function mxQaFix(st){
+  const arr = data.__pptSmart && data.__pptSmart.pages;
+  if(!arr || !arr.length) return { n:0, msg:"当前用的是内置版式，请先「按教案排课」再修复" };
+  let n = 0;
+  const seen = {};
+  arr.forEach((p, i) => {
+    if(!String(p.title || "").trim()){ p.title = SM_LABEL[p.type] || "内容页"; n++; }
+    let t = String(p.title || "").trim();
+    if(seen[t]){ p.title = t + "（" + (i + 1) + "）"; n++; t = p.title; }
+    seen[t] = 1;
+    const contentTypes = ["agenda","questions","visual","columns","process","timeline","checklist","pulse","stats","cards"];
+    if(contentTypes.indexOf(p.type) >= 0 && !(p.items || []).length){
+      const lines = String(st.plan || "").split(/\n+/).map(s => s.replace(/^\s*\d+[.、)]\s*/, "").trim()).filter(s => s.length >= 4 && s.length <= 30);
+      p.items = (lines.length ? lines.slice(0, 3) : ["按教案补充要点"]).map(s => smCut2(s, 30)); n++;
+    }
+    if(["cover","statement","end"].indexOf(p.type) >= 0 && !String(p.sub || "").trim()){
+      p.sub = smCut2(st.topic || "心理课", 16); n++;
+    }
+  });
+  data.__pptSmart.at = Date.now();
+  store.save();
+  return { n:n, msg:n ? "已自动修复 " + n + " 处问题" : "没有可自动修复的问题" };
+}
+function mxQaHTML(items){
+  return '<ul class="mx-qa">' + items.map(x =>
+    '<li><span class="dot ' + x.lv + '"></span><span>' + mxEsc(x.k) + "：" + mxEsc(x.msg) + (x.fix ? '<span class="mx-mini">（' + mxEsc(x.fix) + "）</span>" : "") + "</span></li>"
+  ).join("") + "</ul>";
+}
+
+/* ---------- 真实阶段进度 ---------- */
+const MX_STAGES = ["待上传", "正在解析", "正在设计课堂", "正在匹配活动", "正在匹配图片", "正在生成 PPT", "正在检查", "生成完成"];
+function mxStageHTML(cur, errAt){
+  return '<div class="mx-stage">' + MX_STAGES.map((s, i) => {
+    let cls = "";
+    if(errAt === i) cls = "err";
+    else if(cur > i) cls = "done";
+    else if(cur === i) cls = "act";
+    return "<i class='" + cls + "'>" + (cls === "done" ? "✓ " : "") + s + "</i>";
+  }).join("") + "</div>";
+}
+const MX_LOG = [];
+function mxLog(msg){
+  MX_LOG.push({ at:new Date().toLocaleTimeString("zh-CN"), msg:msg });
+  if(MX_LOG.length > 60) MX_LOG.shift();
+  try{ console.info("[PPT]", msg); }catch(e){}
+}
+
+/* ---------- 课时页数自适应（按设置页数增删内容页） ---------- */
+function mxFitPages(st, pages){
+  const want = Math.max(10, Math.min(18, st.pageN || 15));
+  const fixed = ["cover","support","teacher","end"];
+  const arr = pages.slice();
+  while(arr.length > want){
+    let cut = -1;
+    for(let i = arr.length - 2; i > 0; i--){
+      if(fixed.indexOf(arr[i].type) >= 0) continue;
+      if(arr[i].type === "cards" || arr[i].type === "checklist" || arr[i].type === "stats"){ cut = i; break; }
+    }
+    if(cut < 0) cut = arr.length - 2;
+    if(cut <= 0) break;
+    arr.splice(cut, 1);
+  }
+  if(arr.length < want){
+    const fillers = [
+      { type:"columns", kick:"MORE", title:"把方法拆开看：三个关键动作", items:[{t:"停下来",b:"先离开现场两分钟"},{t:"说出来",b:"用一个词命名感受"},{t:"做一点",b:"选一个小动作"}] },
+      { type:"process", kick:"STEP BY STEP", title:"课堂上可以这样练", items:[{t:"第 1 步",b:"示范一次"},{t:"第 2 步",b:"两人一组练"},{t:"第 3 步",b:"全班分享一句"}] },
+      { type:"quote", kick:"DISCUSS", title:"换成你，会怎么回应", quote:"如果是你，第一句话会说什么？", items:["先说观察到的","再说自己的感受","最后提一个具体请求"] },
+      { type:"cards", kick:"NOTES", title:"老师可以准备的三个提醒", items:[{t:"01",b:"不点名，不评价"},{t:"02",b:"允许跳过"},{t:"03",b:"课后单独跟进"}] }
+    ];
+    let k = 0;
+    while(arr.length < want && k < 8){
+      const f = fillers[k % fillers.length];
+      arr.splice(Math.max(1, arr.length - 2), 0, mxClone(f));
+      k++;
+    }
+  }
+  return arr;
+}
+function mxClone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* ---------- 版本管理（当前会话内） ---------- */
+const MX_VERS = [];
+function mxVerSave(st, label){
+  const pages = smPlan(st);
+  MX_VERS.unshift({ at:Date.now(), label:label || "生成版本", pages:mxClone(pages), sig:smPlanSig(st), plan:String(st.plan || "").slice(0, 20000) });
+  if(MX_VERS.length > 5) MX_VERS.pop();
+}
+function mxVerRestore(i){
+  const v = MX_VERS[i];
+  if(!v) return false;
+  const st = pptState();
+  st.plan = v.plan;
+  data.__pptSmart = { sig:smPlanSig(st), req:(st.req || ""), at:Date.now(), pages:mxClone(v.pages), src:"version" };
+  store.save();
+  return true;
+}
+
+/* ---------- 素材/活动文本回填 ---------- */
+function mxApplyMatText(st, text){
+  const add = String(text || "").trim();
+  if(!add) return;
+  st.plan = add;
+  st.planAuto = true;
+  store.save();
+}
+
+
+/* ---------- AI：按资料 + 活动库生成课堂大纲 ---------- */
+function mxLessonPrompt(st, warm){
+  const pages = Math.max(10, Math.min(18, st.pageN || 15));
+  const txt = String(st.plan || "").trim().slice(0, 9000);
+  const w = warm ? warm.it : null;
+  const wm = warm ? ("【选定热身活动（来自活动库，必须采用并写进课堂热身页）】\n名称：" + w.name +
+    "\n主题：" + (w.themes || []).join("、") + "\n时长：" + (w.minutes || 5) + " 分钟\n人数：" + (w.people || "全班") +
+    "\n道具：" + (w.props || "无") + "\n步骤：" + String(w.steps || "").replace(/\n/g, "；").slice(0, 500) +
+    "\n教师引导语：" + String(w.script || "").slice(0, 300) + "\n复盘问题：" + String(w.reflect || "").slice(0, 300) +
+    "\n注意事项：" + String(w.notes || "").slice(0, 300) +
+    "\n选择理由：" + mxWarmReason(warm, st) + "\n活动页 note 必须写明选择理由；如按主题调整了步骤，要在 note 里说明「已按本课调整」。") : "";
+  return [
+    "你是一名中小学心理课件设计师。请把下面这节课编排成 " + pages + " 页可直接授课的课件。",
+    "【硬性规则】",
+    "1. 只使用【教案原文】里的信息；教案没写的内容不要编造，缺项可按常规补通用目标，但不能改写教材原意。",
+    "2. 第一页 cover，最后一页 end；必须有 1 页 support（求助资源，号码固定 12356 / 12355 / 110 / 120）与 1 页 teacher（环节与分钟分配）。",
+    "3. 课堂流程按教材与课时动态安排，不要求每节课都一样的环节；但如果是标准 40 分钟，可参考：情境导入 → 热身 → 主题引入 → 核心讲解 → 互动体验 → 讨论反思 → 总结与行动。",
+    "4. 每页给出：type 版式、kick 英文小标、title 标题、sub 副标题、items 要点、note 教师引导语/备注、img 配图角色。",
+    "5. 版式只能取：cover / agenda / questions / statement / visual / columns / process / timeline / quote / checklist / pulse / stats / cards / support / teacher / end。",
+    "6. 正文每条 ≤ 30 字；标题 ≤ 16 字；讲师备注 ≤ 50 字。讲师备注要写「讲多久 / 怎么提问 / 边界提醒」。",
+    "7. 同一版式最多连用 2 次，至少用到 6 种版式；面向 " + (st.grade || "初中") + " 学生，不出现真实姓名。",
+    "8. 配图角色 img 只能取 bear（陪伴接纳）/ tangle（纠结压力）/ rain（低落挫折）/ talk（沟通倾听）/ circle（团体互助）；support / teacher 页 img 留空。",
+    wm,
+    st.req ? ("【教师补充要求（优先满足）】\n" + String(st.req).slice(0, 800)) : "",
+    "【教案原文（唯一内容来源）】",
+    txt || "（无原文：按主题写一节通用心理课，但要标明内容为通用结构）",
+    "只输出一个 JSON 对象，不要解释、不要 Markdown 代码块：",
+    '{"pages":[{"type":"版式","kick":"EN","title":"标题","sub":"副标题","quote":"引文","items":["..."],"note":"讲师备注","img":"bear"}]}'
+  ].filter(Boolean).join("\n");
+}
+async function mxAiPages(st, warm){
+  if(!llmReady()) throw new Error("未配置 AI：可在「API 配置」填写，或直接使用本地解析");
+  if(llmModelIsImage()) throw new Error("当前模型是生图模型，请换成对话模型（如 deepseek-chat）");
+  const raw = await smAiJson(mxLessonPrompt(st, warm));
+  const pages = smNorm(llmParse(raw), st);
+  return mxFitPages(st, pages);
+}
+async function mxPageRewrite(st, idx, extra){
+  if(!llmReady()) throw new Error("未配置 AI，单页重排需要模型");
+  const pages = smPlan(st);
+  const pg = pages[idx];
+  if(!pg) throw new Error("页码超出范围");
+  const outline = pages.map((p, i) => (i + 1) + ". " + (SM_LABEL[p.type] || p.type) + " · " + (p.title || "")).join("\n");
+  const prompt = [
+    "这是同一节课的页面清单：", outline,
+    "现在只重写第 " + (idx + 1) + " 页（" + (SM_LABEL[pg.type] || pg.type) + " · " + pg.title + "）。",
+    "要求：保持与原页相同的版式类型「" + pg.type + "」；内容必须来自下面的教案原文与用户补充要求，不要编造；标题 ≤16 字，正文每条 ≤30 字，讲师备注 ≤50 字。",
+    "用户对这一页的额外要求：" + (String(extra || "").trim() || String(st.req || "").trim() || "（无，按教案把这一页写得更清楚、更可讲）"),
+    "这一页当前文案（供参考，可改写但不要改变页面类型与核心知识点）：" + JSON.stringify({ title:pg.title, sub:pg.sub, items:pg.items, note:pg.note }),
+    "【教案原文】", String(st.plan || "").slice(0, 7000),
+    '只输出一个 JSON 对象：{"type":"' + pg.type + '","kick":"EN","title":"标题","sub":"副标题","quote":"引文","items":["..."],"note":"讲师备注","img":"bear|tangle|rain|talk|circle"}'
+  ].join("\n");
+  const raw = await smAiJson(prompt);
+  let j = llmParse(raw);
+  if(Array.isArray(j)) j = j[0];
+  if(!j || typeof j !== "object") throw new Error("模型没有返回页面对象");
+  j.type = pg.type;
+  const np = smNormPage(j);
+  const arr = (data.__pptSmart && data.__pptSmart.pages) ? data.__pptSmart.pages : mxClone(pages);
+  arr[idx] = np;
+  data.__pptSmart = { sig:smPlanSig(st), planKey:mxPlanKey(st), req:(st.req || ""), at:Date.now(), pages:arr, src:"ai" };
+  store.save();
+  return np;
+}
+/* ---------- 大纲 / 单页文字编辑（outline-first，对标成熟课件工具） ---------- */
+function mxPageItemLines(pg){
+  const type = pg && pg.type;
+  return ((pg && pg.items) || []).map(it => {
+    if(typeof it === "string") return it;
+    if(type === "teacher") return (it.t || "") + "|" + (it.m || 5);
+    if(type === "stats") return (it.n || "") + "|" + (it.l || "");
+    return (it.t || "") + (it.b ? "|" + it.b : "");
+  }).join("\n");
+}
+function mxPageItemsFromLines(text, type){
+  return String(text || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(s => {
+    const p = s.split("|").map(x => x.trim());
+    if(type === "teacher") return { t:p[0] || "环节", m:Math.max(1, Math.min(99, parseInt(p[1], 10) || 5)) };
+    if(type === "stats") return { n:(p[0] || "0").slice(0, 4), l:(p[1] || p[0] || "").slice(0, 26) };
+    if(["questions","checklist","pulse","quote","support"].indexOf(type) >= 0) return p[0] || "";
+    return { t:p[0] || "", b:p[1] || "" };
+  });
+}
+function mxTidyPages(pages){
+  const arr = pages.slice(0);
+  const ci = arr.map(p => p.type).indexOf("cover");
+  if(ci > 0) arr.unshift(arr.splice(ci, 1)[0]);
+  const ei = arr.map(p => p.type).lastIndexOf("end");
+  if(ei >= 0 && ei !== arr.length - 1) arr.push(arr.splice(ei, 1)[0]);
+  return arr;
+}
+/* 保存手动编辑后的页面：写入 __pptSmart，并同步 pageN，保证再次生成沿用 */
+function mxSavePages(st, pages, src){
+  const arr = mxTidyPages(pages.map(p => smNormPage(p)));
+  st.pageN = Math.max(10, Math.min(18, arr.length));
+  data.__pptSmart = { sig:smPlanSig(st), planKey:mxPlanKey(st), req:(st.req || ""), at:Date.now(), pages:arr, src:(src || "manual") };
+  store.save();
+  return arr;
+}
+function mxOutlineDownload(st, pages){
+  const arr = pages || smPlan(st);
+  const styleNm = st.style === "smart" ? "智能版式" : st.style === "book" ? "绘本手账" : "海报卡片";
+  const out = ["# " + (st.topic || "心理课") + " · " + (st.grade || "") + " · " + (st.minutes || 40) + " 分钟", "",
+    "> " + arr.length + " 页 · 16:9 · " + styleNm + " · " + ((PPT_THEMES[st.theme] || PPT_THEMES.warm).nm), "", "## 课堂流程", ""];
+  arr.forEach((p, i) => {
+    out.push("### " + (i + 1) + ". " + (SM_LABEL[p.type] || p.type) + " · " + (p.title || ""));
+    if(p.sub) out.push("- 副标题：" + p.sub);
+    if(p.quote) out.push("- 引文：" + p.quote);
+    (p.items || []).forEach(it => {
+      if(typeof it === "string") out.push("- " + it);
+      else if(p.type === "teacher") out.push("- " + (it.t || "") + "（" + (it.m || 5) + " 分钟）");
+      else if(p.type === "stats") out.push("- " + (it.n || "") + " " + (it.l || ""));
+      else out.push("- " + (it.t || "") + (it.b ? "：" + it.b : ""));
+    });
+    if(p.note) out.push("- 讲师备注：" + p.note);
+    out.push("");
+  });
+  mxDownload(new Blob([out.join("\n")], { type:"text/markdown;charset=utf-8" }), (st.grade || "") + "_" + (st.topic || "课件") + "_大纲.md");
+}
+function mxOutlineDialog(st){
+  const ADD_TYPES = ["agenda","questions","statement","visual","columns","process","timeline","quote","checklist","pulse","stats","cards"];
+  let work = mxClone(smPlan(st));
+  const box = mxDialog("<h4>编辑大纲</h4>" +
+    "<p class='hint'>先改结构再出片：标题、版式、要点、讲师备注都能改；↑↓ 调序，复制/删除增删页。封面、求助页、讲师页、结束页不可删除；求助页请保留 12356 / 12355 / 110 / 120。</p>" +
+    "<div class='mx-mini' id='mx-ocount'></div><div id='mx-olist'></div>" +
+    "<div class='mx-acts'><select id='mx-oadd-type' style='border:1px solid #E2DBCE;border-radius:8px;padding:6px 8px;font-size:12px'></select>" +
+    "<button class='mx-btn' data-oadd='1'>新增一页</button>" +
+    "<button class='mx-btn primary' data-osave='1'>保存大纲</button>" +
+    "<button class='mx-btn' data-omd='1'>导出 Markdown</button></div>", true);
+  const list = box.querySelector("#mx-olist");
+  const ocount = box.querySelector("#mx-ocount");
+  const btnCss = "border:1px solid #DCD4C6;background:#fff;border-radius:6px;width:30px;height:22px;font-size:11px;cursor:pointer;padding:0;color:#4A443A";
+  const inpCss = "border:1px solid #E2DBCE;border-radius:7px;padding:5px 7px;font-size:12px;font-family:inherit;background:#fff";
+  const typeOpts = cur => SM_TYPES.map(t => "<option value='" + t + "'" + (t === cur ? " selected" : "") + ">" + (SM_LABEL[t] || t) + "</option>").join("");
+  const addOpts = ADD_TYPES.map(t => "<option value='" + t + "'>" + (SM_LABEL[t] || t) + "</option>").join("");
+  box.querySelector("#mx-oadd-type").innerHTML = addOpts;
+  const readRows = () => {
+    list.querySelectorAll("[data-oi]").forEach(row => {
+      const i = +row.dataset.oi;
+      if(!work[i]) return;
+      const type = row.querySelector("[data-of='type']").value;
+      work[i] = Object.assign({}, work[i], {
+        type:type,
+        title:(row.querySelector("[data-of='title']").value || "").trim(),
+        items:mxPageItemsFromLines(row.querySelector("[data-of='items']").value, type),
+        note:(row.querySelector("[data-of='note']").value || "").trim()
+      });
+    });
+  };
+  const render = () => {
+    ocount.textContent = "共 " + work.length + " 页（10–18 页）" + (work.length > 18 ? " · 超出上限，请先删减" : "");
+    list.innerHTML = work.map((p, i) => {
+      const lock = ["cover","support","teacher","end"].indexOf(p.type) >= 0;
+      return "<div data-oi='" + i + "' style='display:flex;gap:7px;align-items:flex-start;padding:8px 0;border-bottom:1px dashed #EEE8DC'>" +
+        "<span class='mx-mini' style='width:20px;padding-top:6px'>" + String(i + 1).padStart(2, "0") + "</span>" +
+        "<div style='flex:1;min-width:0'>" +
+          "<div style='display:flex;gap:6px'>" +
+            "<select data-of='type' style='" + inpCss + ";width:96px'>" + typeOpts(p.type) + "</select>" +
+            "<input data-of='title' value='" + mxEsc(p.title || "") + "' style='" + inpCss + ";flex:1;min-width:0'/>" +
+          "</div>" +
+          "<textarea data-of='items' rows='2' style='" + inpCss + ";width:100%;margin-top:5px;resize:vertical' placeholder='每行一条；主文|副文；讲师页写 环节|分钟；数字页写 数字|标签'>" + mxEsc(mxPageItemLines(p)) + "</textarea>" +
+          "<input data-of='note' value='" + mxEsc(p.note || "") + "' style='" + inpCss + ";width:100%;margin-top:5px' placeholder='讲师备注（≤90 字）'/>" +
+        "</div>" +
+        "<div style='display:flex;flex-direction:column;gap:3px'>" +
+          "<button data-oact='up' " + (i <= 1 ? "disabled" : "") + " style='" + btnCss + "'>↑</button>" +
+          "<button data-oact='down' " + (i <= 0 || i >= work.length - 2 ? "disabled" : "") + " style='" + btnCss + "'>↓</button>" +
+          "<button data-oact='dup' " + (lock ? "disabled" : "") + " style='" + btnCss + "'>复制</button>" +
+          "<button data-oact='del' " + (lock ? "disabled" : "") + " style='" + btnCss + "'>删</button>" +
+        "</div></div>";
+    }).join("");
+  };
+  render();
+  box.addEventListener("click", e => {
+    const b = e.target.closest("[data-oact]");
+    if(b && !b.disabled){
+      readRows();
+      const i = +b.closest("[data-oi]").dataset.oi;
+      const act = b.dataset.oact;
+      if(act === "up" && i > 1){ const t = work[i]; work[i] = work[i - 1]; work[i - 1] = t; }
+      if(act === "down" && i > 0 && i < work.length - 2){ const t = work[i]; work[i] = work[i + 1]; work[i + 1] = t; }
+      if(act === "dup" && !["cover","support","teacher","end"].includes(work[i].type)){
+        const c = mxClone(work[i]); c.title = (c.title || "") + "（副本）"; work.splice(i + 1, 0, c);
+      }
+      if(act === "del" && !["cover","support","teacher","end"].includes(work[i].type)) work.splice(i, 1);
+      render();
+      return;
+    }
+    if(e.target.closest("[data-oadd]")){
+      readRows();
+      if(work.length >= 18){ alert("最多 18 页，请先删减或复制已有页。"); return; }
+      const type = box.querySelector("#mx-oadd-type").value;
+      const np = { type:type, kick:"", title:SM_LABEL[type] || "新页", sub:"", quote:"", items:[], note:"", img:"" };
+      const ei = work.map(p => p.type).lastIndexOf("end");
+      work.splice(ei >= 0 ? ei : work.length, 0, np);
+      render();
+      return;
+    }
+    if(e.target.closest("[data-osave]")){
+      readRows();
+      if(work.length < 10){ alert("至少保留 10 页（当前 " + work.length + " 页），可复制或新增后再保存。"); return; }
+      const arr = mxSavePages(st, work, "manual");
+      box.remove(); mxRefreshPpt(st);
+      mxSetOut("大纲已保存：" + arr.length + " 页，可重新生成 PPTX", "ok");
+      return;
+    }
+    if(e.target.closest("[data-omd]")){ readRows(); mxOutlineDownload(st, work); }
+  });
+}
+/* 活动库 AI 深匹配：把前 8 条候选给模型，选出最合适的一条并给出理由 */
+async function mxWarmAiPick(st){
+  const list = mxWarmLib();
+  if(!list.length) throw new Error("活动库为空，先导入 Excel 或新增活动");
+  if(!llmReady()) throw new Error("未配置 AI，无法做语义匹配；可先用关键词匹配");
+  const cands = list.map(x => {
+    const sc = mxWarmScore(x, st).score;
+    return { x:x, sc:sc };
+  }).sort((a, b) => b.sc - a.sc).slice(0, 8).map((o, i) => ({
+    no:i + 1, name:o.x.name, themes:o.x.themes, grade:o.x.grades, minutes:o.x.minutes,
+    props:o.x.props, steps:String(o.x.steps || "").slice(0, 160), score:o.sc
+  }));
+  const prompt = [
+    "你是心理教研员。根据这节课的信息，从候选热身活动中选出最合适的一个。",
+    "课程：" + (st.topic || "") + " · " + (st.grade || "") + " · " + (st.minutes || 40) + " 分钟",
+    "教师要求：" + (String(st.req || "").slice(0, 300) || "无"),
+    "教案摘要：" + String(st.plan || "").slice(0, 1200),
+    "候选活动（JSON）：" + JSON.stringify(cands),
+    '只输出 JSON：{"no":候选编号,"reason":"一句话理由，≤40字","adjust":"如需按本课微调步骤，写一句；不需要写空字符串"}'
+  ].join("\n");
+  const j = llmParse(await smAiJson(prompt));
+  const no = Math.max(1, Math.min(cands.length, parseInt(j.no, 10) || 1));
+  const hit = cands[no - 1];
+  const item = list.find(x => x.name === hit.name);
+  return { item:item, reason:String(j.reason || "").slice(0, 80), adjust:String(j.adjust || "").slice(0, 120) };
+}
+
+/* ---------- 界面片段 ---------- */
+function mxMatsHTML(){
+  if(!MX_MATS.length){
+    return '<div class="mx-mini" style="padding:6px 0">还没有资料。支持 JPG/PNG 课本照片、PDF、DOCX 教案、TXT；单份 ≤25 MB，最多 12 份。</div>';
+  }
+  return MX_MATS.map((m, i) => {
+    const cls = m.status === "ok" ? "ok" : m.status === "err" ? "err" : m.status === "reading" ? "reading" : "";
+    const thumb = m.kind === "img" && m.thumb ? '<img src="' + m.thumb + '" alt=""/>' : '<span class="ico">' + (m.kind === "pdf" ? "PDF" : m.kind === "docx" ? "DOCX" : m.kind === "img" ? "IMG" : "TXT") + "</span>";
+    return '<div class="mx-mat" data-mid="' + m.id + '">' + thumb +
+      '<div class="mt"><div class="nm">' + (i + 1) + ". " + mxEsc(m.name) + '</div><div class="st ' + cls + '">' + mxEsc(m.msg) + " · " + mxBytes(m.size) + "</div></div>" +
+      '<div class="ops"><button data-mxmat="up" title="上移">↑</button><button data-mxmat="down" title="下移">↓</button>' +
+      (m.kind === "img" ? '<button data-mxmat="view" title="预览">看</button>' : "") +
+      '<button data-mxmat="del" title="删除">×</button></div></div>';
+  }).join("");
+}
+function mxWarmPanelHTML(st){
+  const lib = mxWarmLib();
+  if(!lib.length){
+    return '<div class="mx-mini" style="padding:4px 0 8px">活动库为空。可导入 Excel（列：' + MX_WARM_COLS.join(" / ") + '），或新增一条；为空时不会伪造活动。</div>';
+  }
+  const m = mxWarmMatch(st);
+  return '<div class="mx-mini" style="padding:4px 0">活动库 ' + lib.length + " 条" +
+    (m ? ' · 关键词匹配：《' + mxEsc(m.it.name) + "》（" + (m.it.minutes || 5) + " 分钟）" + "<br/>" + mxEsc(mxWarmReason(m, st)) : " · 暂无强匹配") +
+    '</div><div class="mx-acts"><button class="mx-btn" data-mxwarm="list">管理活动库</button>' +
+    '<button class="mx-btn" data-mxwarm="ai">AI 语义匹配</button>' +
+    '<button class="mx-btn" data-mxwarm="export">导出 Excel</button></div>';
+}
+function mxLibPanelHTML(st){
+  const lib = mxImgLib();
+  if(!lib.length){
+    return '<div class="mx-mini" style="padding:4px 0 8px">素材库为空。上传卡通插画后会在这里显示；没有素材时按页配图会退回内置手绘，不会假装匹配成功。</div>' +
+      '<div class="mx-acts"><button class="mx-btn primary" data-mximg="add">上传插画</button></div>';
+  }
+  return '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0">' + lib.slice(0, 6).map(it =>
+    '<div class="mx-thumb" data-mximgsel="' + it.id + '" title="' + mxEsc(it.name) + '"><img src="' + it.src + '" alt=""/>' +
+    '<span>' + mxEsc(it.name) + "</span></div>").join("") + "</div>" +
+    '<div class="mx-mini">共 ' + lib.length + " 张（上限 " + MX_IMG_MAX + "）· 按主题/情绪/年级与页面语义自动匹配</div>" +
+    '<div class="mx-acts"><button class="mx-btn primary" data-mximg="add">上传插画</button><button class="mx-btn" data-mximg="manage">管理素材库</button></div>';
+}
+function mxStageBarHTML(){
+  return mxStageHTML(-1, -1) + '<div class="mx-kv" id="mx-log">尚未开始。点击「一键生成 PPTX」，每一步都会显示真实状态。</div>';
+}
+
+/* ---------- 素材库管理弹层 ---------- */
+function mxImgManageDialog(st){
+  const render = () => {
+    const lib = mxImgLib();
+    const body = lib.length ? '<div class="mx-grid">' + lib.map(it =>
+      '<div class="mx-thumb"><img src="' + it.src + '" alt=""/><span>' + mxEsc(it.name) + '<br/><span class="mx-mini">' + mxEsc(it.theme || "未标主题") + " · " + mxEsc(it.emotion) + "</span></span>" +
+      '<div style="display:flex;gap:4px;padding:0 6px 7px"><button class="mx-btn" style="padding:3px 7px" data-mximgmeta="' + it.id + '">编辑</button>' +
+      '<button class="mx-btn" style="padding:3px 7px" data-mximgre="' + it.id + '">换图</button>' +
+      '<button class="mx-btn" style="padding:3px 7px" data-mximgdel="' + it.id + '">删除</button></div></div>').join("") + "</div>"
+      : '<p class="hint">素材库为空，先上传图片并填写主题/情绪标签，系统才能按页面语义匹配。</p>';
+    const box = mxDialog("<h4>插画素材库（" + lib.length + " / " + MX_IMG_MAX + "）</h4>" +
+      '<p class="hint">每张图记录：ID、路径（本机压缩后的数据）、主题、情绪、适用年级、风格、来源与授权。删除或替换即时生效。</p>' +
+      body + '<div class="mx-acts"><button class="mx-btn primary" data-mximgadd="1">上传插画</button><button class="mx-btn" data-mxclose="1">完成</button></div>', true);
+    box.addEventListener("click", async e => {
+      const add = e.target.closest("[data-mximgadd]");
+      if(add){ box.remove(); mxImgUpload(st); return; }
+      const meta = e.target.closest("[data-mximgmeta]");
+      if(meta){ box.remove(); mxImgMetaDialog(st, meta.dataset.mximgmeta); return; }
+      const rep = e.target.closest("[data-mximgre]");
+      if(rep){
+        const inp = document.createElement("input");
+        inp.type = "file"; inp.accept = "image/*";
+        inp.onchange = async () => {
+          const f = inp.files && inp.files[0];
+          if(!f) return;
+          try{ await mxImgReplace(rep.dataset.mximgre, f); box.remove(); mxImgManageDialog(st); }
+          catch(err){ alert("替换失败：" + (err && err.message || err)); }
+        };
+        inp.click(); return;
+      }
+      const del = e.target.closest("[data-mximgdel]");
+      if(del){
+        if(!confirm("删除这张素材？")) return;
+        mxImgDel(del.dataset.mximgdel);
+        box.remove(); mxImgManageDialog(st);
+      }
+    });
+  };
+  render();
+}
+function mxImgUpload(st){
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "image/*"; inp.multiple = true;
+  inp.onchange = async () => {
+    const files = Array.from(inp.files || []);
+    if(!files.length) return;
+    const r = await mxImgAdd(files, {});
+    mxRefreshPpt(st);
+    if(!r.saved) alert("浏览器本地存储已满，只保留了部分图片。建议先删除不用的素材，或使用更小的图片。");
+    else if(r.skipped) alert("有 " + r.skipped + " 张未导入（格式不支持或超过 12 MB）。");
+  };
+  inp.click();
+}
+function mxImgMetaDialog(st, id){
+  const it = mxImgLib().find(x => x.id === id);
+  if(!it) return;
+  const emoOpt = MX_IMG_EMO.map(x => '<option ' + (x === it.emotion ? "selected" : "") + ">" + x + "</option>").join("");
+  const styOpt = MX_IMG_STY.map(x => '<option ' + (x === it.style ? "selected" : "") + ">" + x + "</option>").join("");
+  const box = mxDialog("<h4>素材信息</h4><p class='hint'>ID：" + mxEsc(it.id) + "</p>" +
+    "<div class='mx-field'><label>名称</label><input id='mxn' value='" + mxEsc(it.name) + "'/></div>" +
+    "<div class='mx-field'><label>主题</label><input id='mxt' value='" + mxEsc(it.theme) + "' placeholder='如 情绪管理 / 人际沟通'/></div>" +
+    "<div class='mx-field'><label>情绪</label><select id='mxe'>" + emoOpt + "</select></div>" +
+    "<div class='mx-field'><label>年级</label><input id='mxg' value='" + mxEsc(it.grade) + "' placeholder='如 初二；留空=通用'/></div>" +
+    "<div class='mx-field'><label>风格</label><select id='mxs'>" + styOpt + "</select></div>" +
+    "<div class='mx-field'><label>来源</label><input id='mxso' value='" + mxEsc(it.source) + "'/></div>" +
+    "<div class='mx-field'><label>授权</label><input id='mxl' value='" + mxEsc(it.license) + "'/></div>" +
+    "<div class='mx-acts'><button class='mx-btn primary' id='mxsv'>保存</button><button class='mx-btn' data-mxclose='1'>取消</button></div>");
+  box.querySelector("#mxsv").onclick = () => {
+    const list = mxImgLib();
+    const x = list.find(v => v.id === id);
+    if(!x) return;
+    x.name = box.querySelector("#mxn").value.trim() || x.name;
+    x.theme = box.querySelector("#mxt").value.trim();
+    x.emotion = box.querySelector("#mxe").value;
+    x.grade = box.querySelector("#mxg").value.trim();
+    x.style = box.querySelector("#mxs").value;
+    x.source = box.querySelector("#mxso").value.trim();
+    x.license = box.querySelector("#mxl").value.trim();
+    mxImgSave(list);
+    box.remove();
+    mxRefreshPpt(st);
+  };
+}
+
+/* ---------- 热身活动库管理弹层 ---------- */
+function mxWarmManageDialog(st){
+  const box = mxDialog("<h4>热身活动库</h4><p class='hint'>共 " + mxWarmLib().length + " 条。支持 Excel / CSV 导入，可搜索、筛选、编辑、查看步骤。</p>" +
+    "<div style='display:flex;gap:8px;margin-bottom:10px'><input id='mxq' placeholder='搜索活动名 / 主题 / 步骤' style='flex:1;border:1px solid #E2DBCE;border-radius:8px;padding:7px 9px;font-size:12px'/>" +
+    "<select id='mxg2' style='border:1px solid #E2DBCE;border-radius:8px;padding:7px 9px;font-size:12px'><option value=''>全部年级</option>" +
+    ["初一","初二","初三","高一","高二","高三","小学","初中","高中"].map(g => "<option>" + g + "</option>").join("") + "</select></div>" +
+    "<div id='mxlist'></div><div class='mx-acts'><button class='mx-btn primary' data-mxwadd='1'>新增活动</button>" +
+    "<button class='mx-btn' data-mxwimp='1'>导入 Excel / CSV</button><button class='mx-btn' data-mxwexp='1'>导出 Excel</button></div>", true);
+  const paint = () => {
+    const q = (box.querySelector("#mxq").value || "").trim();
+    const g = box.querySelector("#mxg2").value;
+    const list = mxWarmLib().filter(x => {
+      const hay = [x.name, (x.themes || []).join(" "), x.steps, x.script].join(" ");
+      if(q && hay.indexOf(q) < 0) return false;
+      if(g && !(x.grades || []).some(v => v.indexOf(g) >= 0 || g.indexOf(v) >= 0)) return false;
+      return true;
+    });
+    box.querySelector("#mxlist").innerHTML = list.length
+      ? '<ul class="mx-list">' + list.map(x => "<li><span class='nm'>" + mxEsc(x.name) +
+        "<span class='mx-tag'>" + (x.minutes || 5) + " 分钟</span>" + (x.themes || []).slice(0, 2).map(t => "<span class='mx-tag'>" + mxEsc(t) + "</span>").join("") +
+        "<br/><span class='mx-mini'>" + mxEsc((x.grades || []).join("、") || "通用") + " · " + mxEsc(x.props || "无道具") + "</span></span>" +
+        "<button class='mx-btn' style='padding:3px 8px' data-mxwview='" + x.id + "'>详情</button></li>").join("") + "</ul>"
+      : '<p class="hint">没有符合条件的活动。</p>';
+  };
+  paint();
+  box.querySelector("#mxq").addEventListener("input", paint);
+  box.querySelector("#mxg2").addEventListener("change", paint);
+  box.addEventListener("click", e => {
+    if(e.target.closest("[data-mxwadd]")){ box.remove(); mxWarmEditDialog(st, ""); return; }
+    if(e.target.closest("[data-mxwimp]")){ box.remove(); mxWarmImport(st); return; }
+    if(e.target.closest("[data-mxwexp]")){
+      try{ mxWarmExport(); }catch(err){ alert(err.message || err); }
+      return;
+    }
+    const v = e.target.closest("[data-mxwview]");
+    if(v){ mxWarmDetailDialog(st, v.dataset.mxwview); }
+  });
+}
+function mxWarmDetailDialog(st, id){
+  const x = mxWarmLib().find(v => v.id === id);
+  if(!x) return;
+  const kv = (k, v) => v ? "<div class='mx-field'><label>" + k + "</label><div style='flex:1;font-size:12px;line-height:1.7;white-space:pre-wrap'>" + mxEsc(v) + "</div></div>" : "";
+  const box = mxDialog("<h4>" + mxEsc(x.name) + "</h4><p class='hint'>" + mxEsc((x.themes || []).join("、") || "未标主题") + " · " + mxEsc((x.grades || []).join("、") || "通用") + " · " + (x.minutes || 5) + " 分钟</p>" +
+    kv("人数", x.people) + kv("道具", x.props) + kv("步骤", x.steps) + kv("引导语", x.script) + kv("复盘", x.reflect) + kv("注意", x.notes) + kv("来源", x.src) +
+    "<div class='mx-acts'><button class='mx-btn primary' data-mxwuse='1'>用这个活动</button><button class='mx-btn' data-mxwedit='1'>编辑</button><button class='mx-btn' data-mxwdel='1'>删除</button></div>");
+  box.addEventListener("click", e => {
+    if(e.target.closest("[data-mxwuse]")){
+      st.warmPick = x.id;
+      st.warm = [x.name].concat(st.warm ? String(st.warm).split("\n") : []).join("\n");
+      store.save(); box.remove(); mxRefreshPpt(st);
+    }
+    if(e.target.closest("[data-mxwedit]")){ box.remove(); mxWarmEditDialog(st, id); }
+    if(e.target.closest("[data-mxwdel]")){
+      if(!confirm("删除活动《" + x.name + "》？")) return;
+      mxWarmDel(id); box.remove(); mxWarmManageDialog(st);
+    }
+  });
+}
+function mxWarmEditDialog(st, id){
+  const x = id ? mxWarmLib().find(v => v.id === id) : { name:"", themes:[], grades:[], minutes:5, people:"全班", props:"", steps:"", script:"", reflect:"", notes:"", src:"手动新增" };
+  const f = (label, key, ph, ta) => "<div class='mx-field'><label>" + label + "</label>" +
+    (ta ? "<textarea id='mw-" + key + "' placeholder='" + ph + "'>" + mxEsc(x[key] || "") + "</textarea>"
+        : "<input id='mw-" + key + "' value='" + mxEsc(key === "minutes" ? (x.minutes || 5) : (Array.isArray(x[key]) ? x[key].join("，") : (x[key] || ""))) + "' placeholder='" + ph + "'/>") + "</div>";
+  const box = mxDialog("<h4>" + (id ? "编辑活动" : "新增活动") + "</h4>" +
+    f("名称", "name", "如 情绪猜猜看") + f("主题", "themes", "用逗号分隔：情绪，人际") + f("年级", "grades", "用逗号分隔：初一，初二") +
+    f("时长", "minutes", "5") + f("人数", "people", "全班 / 4–6 人一组") + f("道具", "props", "无 / 卡片、音乐") +
+    f("步骤", "steps", "一行一步", true) + f("引导语", "script", "教师开场怎么说", true) +
+    f("复盘", "reflect", "活动后问什么", true) + f("注意", "notes", "安全与边界提醒", true) +
+    "<div class='mx-acts'><button class='mx-btn primary' id='mw-save'>保存</button><button class='mx-btn' data-mxclose='1'>取消</button></div>");
+  box.querySelector("#mw-save").onclick = () => {
+    const g = k => box.querySelector("#mw-" + k).value.trim();
+    if(!g("name")){ alert("活动名称不能为空"); return; }
+    const it = { id:id || "", name:g("name"), themes:mxWarmSplit(g("themes")), grades:mxWarmSplit(g("grades")),
+      minutes:parseInt(g("minutes"), 10) || 5, people:g("people"), props:g("props"), steps:g("steps"),
+      script:g("script"), reflect:g("reflect"), notes:g("notes"), src:g("src") || x.src || "手动新增", at:Date.now() };
+    if(!mxWarmUpsert(it)) alert("本地存储已满，保存失败");
+    box.remove();
+    if(id) mxWarmManageDialog(st); else mxWarmManageDialog(st);
+    mxRefreshPpt(st);
+  };
+}
+function mxWarmImport(st){
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".xlsx,.csv,.txt";
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if(!f) return;
+    try{
+      const rows = /\.csv$/i.test(f.name) || /\.txt$/i.test(f.name) ? mxCsvRows(await f.text()) : await mxXlsxRead(f);
+      const r = mxWarmImportRows(rows);
+      alert("导入完成：新增 " + r.add + " 条" + (r.skip ? "，跳过重复 " + r.skip + " 条" : "") + "；活动库现有 " + r.total + " 条。" + (r.saved ? "" : "（本地存储已满，部分未保存）"));
+      mxRefreshPpt(st); mxWarmManageDialog(st);
+    }catch(err){ alert("导入失败：" + (err && err.message || err)); }
+  };
+  inp.click();
+}
+
+/* ---------- 逐页操作（换图 / 单页重排 / 恢复） ---------- */
+function mxPageOpsDialog(st, idx){
+  const pages = smPlan(st), pg = pages[idx];
+  if(!pg) return;
+  const cur = mxPageImgOverride(pg, st, idx);
+  const lib = mxImgLib();
+  const mats = MX_MATS.filter(m => m.kind === "img");
+  const libHTML = lib.length ? '<div class="mx-grid" style="margin-bottom:10px">' + lib.map(it =>
+    '<div class="mx-thumb' + (cur && cur.kind === "lib" && cur.item && cur.item.id === it.id ? " on" : "") + '" data-mxset="lib:' + it.id + '"><img src="' + it.src + '"/>' +
+    '<span>' + mxEsc(it.name) + "</span></div>").join("") + "</div>"
+    : '<p class="hint">素材库为空，先上传插画再指定。</p>';
+  const matHTML = mats.length ? '<div class="mx-mini" style="margin:6px 0">来自上传的课本照片：</div><div class="mx-grid">' + mats.map(m =>
+    '<div class="mx-thumb" data-mxset="mat:' + m.id + '"><img src="' + m.thumb + '"/><span>' + mxEsc(m.name) + "</span></div>").join("") + "</div>"
+    : "";
+  const itemsPh = pg.type === "teacher" ? "每行一个环节：环节|分钟"
+    : pg.type === "stats" ? "每行一项：数字|标签"
+    : ["questions","checklist","pulse","quote","support"].indexOf(pg.type) >= 0 ? "每行一条，不必写序号"
+    : "每行一条：主文|副文";
+  const hasSub = ["cover","quote","end"].indexOf(pg.type) >= 0;
+  const hasQuote = pg.type === "quote";
+  const box = mxDialog("<h4>第 " + (idx + 1) + " 页 · " + mxEsc(pg.title || "") + "</h4>" +
+    "<p class='hint'>可以直接改这一页的文字，也可以换图或让 AI 只重写这一页。保存后立刻反映在预览和导出的 PPTX 里。</p>" +
+    "<div style='margin-top:4px'>" +
+      "<div class='mx-field'><label>标题</label><input id='mxpe-title' maxlength='26' value='" + mxEsc(pg.title || "") + "'/></div>" +
+      (hasSub ? "<div class='mx-field'><label>副标题</label><input id='mxpe-sub' maxlength='52' value='" + mxEsc(pg.sub || "") + "'/></div>" : "") +
+      (hasQuote ? "<div class='mx-field'><label>引文</label><input id='mxpe-quote' maxlength='56' placeholder='可留空' value='" + mxEsc(pg.quote || "") + "'/></div>" : "") +
+      "<div class='mx-field'><label>要点</label><textarea id='mxpe-items' rows='4' placeholder='" + mxEsc(itemsPh) + "'>" + mxEsc(mxPageItemLines(pg)) + "</textarea></div>" +
+      "<div class='mx-field'><label>讲师备注</label><input id='mxpe-note' maxlength='90' placeholder='讲这一页时的提醒，≤90 字' value='" + mxEsc(pg.note || "") + "'/></div>" +
+      "<div class='mx-field'><label>本页要求</label><textarea id='mxpe-extra' rows='2' placeholder='只对 AI 重写生效，例如：改成能引发讨论的问题'></textarea></div>" +
+      "<div class='mx-acts' style='margin-top:2px'><button class='mx-btn primary' data-mxpsave='1'>保存本页文字</button></div>" +
+    "</div>" +
+    "<div class='mx-mini' style='margin:14px 0 6px'>配图（当前：" + (cur ? (cur.kind === "none" ? "已设为无图" : "已手动指定") : "自动匹配") + "）</div>" +
+    libHTML + matHTML +
+    "<div class='mx-acts'><button class='mx-btn' data-mxset='auto'>自动匹配</button><button class='mx-btn' data-mxset='none'>本页无图</button>" +
+    "<button class='mx-btn primary' data-mxpagere='1'>AI 重写这一页</button></div>");
+  box.addEventListener("click", async e => {
+    if(e.target.closest("[data-mxpsave]")){
+      const val = id => { const el = box.querySelector("#" + id); return el ? String(el.value || "").trim() : ""; };
+      const pages = smPlan(st).map(p => Object.assign({}, p));
+      if(!pages[idx]) return;
+      const has = id => !!box.querySelector("#" + id);
+      pages[idx] = Object.assign({}, pages[idx], {
+        title:val("mxpe-title") || pages[idx].title,
+        sub:has("mxpe-sub") ? val("mxpe-sub") : pages[idx].sub,
+        quote:has("mxpe-quote") ? val("mxpe-quote") : pages[idx].quote,
+        note:val("mxpe-note"),
+        items:mxPageItemsFromLines(val("mxpe-items"), pages[idx].type)
+      });
+      mxSavePages(st, pages, "page");
+      box.remove(); mxRefreshPpt(st);
+      mxSetOut("第 " + (idx + 1) + " 页文字已保存，可重新生成 PPTX", "ok");
+      return;
+    }
+    const s = e.target.closest("[data-mxset]");
+    if(s){
+      const v = s.dataset.mxset;
+      st.pageImgs = st.pageImgs || {};
+      if(v === "auto") delete st.pageImgs[idx];
+      else if(v === "none") st.pageImgs[idx] = { kind:"none" };
+      else{
+        const p = v.split(":");
+        st.pageImgs[idx] = p[0] === "lib" ? { kind:"lib", id:p[1] } : { kind:"mat", mid:p[1] };
+      }
+      store.save(); box.remove(); mxRefreshPpt(st);
+      return;
+    }
+    if(e.target.closest("[data-mxpagere]")){
+      const extra = (box.querySelector("#mxpe-extra") || {}).value || "";
+      box.remove();
+      const bar = document.querySelector("#ppt-stage2");
+      try{
+        if(bar) bar.innerHTML = mxStageHTML(6, -1);
+        const np = await mxPageRewrite(st, idx, extra);
+        mxRefreshPpt(st);
+        if(bar) bar.innerHTML = mxStageHTML(8, -1) + '<div class="mx-kv">第 ' + (idx + 1) + " 页已重写：" + mxEsc(np.title) + "</div>";
+      }catch(err){
+        if(bar) bar.innerHTML = mxStageHTML(6, 6) + '<div class="mx-kv" style="color:#C2410C">' + mxEsc(err && err.message || String(err)) + "</div>";
+      }
+    }
+  });
+}
+
+/* ---------- 统一刷新（不整页重绘，避免丢失输入焦点） ---------- */
+function mxRefreshPpt(st){
+  if($("#ppt-mats")) $("#ppt-mats").innerHTML = mxMatsHTML();
+  if($("#ppt-matstate")) $("#ppt-matstate").textContent = mxMatStats();
+  if($("#ppt-warmlib")) $("#ppt-warmlib").innerHTML = mxWarmPanelHTML(st);
+  if($("#ppt-imglib")) $("#ppt-imglib").innerHTML = mxLibPanelHTML(st);
+  if($("#ppt-outline")) $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
+  if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
+  if($("#ppt-meta")) $("#ppt-meta").textContent = smPlan(st).length + " 页 · 16:9 · " + (st.style === "smart" ? "智能版式" : st.style === "poster" ? "海报卡片" : "绘本手账") + " · " + ((PPT_THEMES[st.theme] || PPT_THEMES.warm).nm) + " · " + (st.notes ? "含讲师备注" : "不含备注");
+  if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(mxQaPages(st, smPlan(st)));
+  if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + smPlan(st).length + " 页 · 生成后还会检查文件本身";
+  planPaintSafe(st);
+  store.save();
+}
+function planPaintSafe(st){
+  const n = String(st.plan || "").trim().length;
+  if($("#ppt-planstate")) $("#ppt-planstate").textContent = n
+    ? "教案文字 " + n + " 字 · " + smPlanState(st) + (MX_MATS.length ? " · 资料 " + MX_MATS.filter(m => m.status === "ok").length + "/" + MX_MATS.length + " 份已解析" : "")
+    : (MX_MATS.length ? "有 " + MX_MATS.length + " 份资料待解析；点「解析资料并排课」" : "可粘贴教案，或上传课本照片 / PDF / DOCX");
+  if($("#ppt-warmstate")){
+    const wn = mxWarmLib().length;
+    $("#ppt-warmstate").textContent = wn ? "活动库 " + wn + " 条已就绪；排课时按主题与年级匹配" : "一行一个活动名，或导入 Excel；活动库为空时用本地提问开场";
+  }
+  if($("#ppt-libnote")) $("#ppt-libnote").textContent = mxImgLib().length ? "素材库 " + mxImgLib().length + " 张（按主题/情绪/年级匹配）" : "素材库为空：配图会退回内置手绘，不会伪造匹配";
+}
+
+
+/* ---------- 生成闭环：解析 → 排课 → 活动 → 配图 → PPTX → 质检 ---------- */
+const MX_LAST = { blob:null, name:"", slides:0, at:0, bytes:0 };
+function mxStageEl(){
+  return document.querySelector("#ppt-stage2");
+}
+function mxStagePaint(cur, errAt, note){
+  const el = mxStageEl();
+  if(!el) return;
+  el.innerHTML = mxStageHTML(cur, typeof errAt === "number" ? errAt : -1) +
+    (note ? '<div class="mx-kv">' + mxEsc(note) + "</div>" : "");
+}
+function mxLogPaint(){
+  const el = document.querySelector("#mx-log");
+  if(!el) return;
+  const last = MX_LOG.slice(-3).map(x => x.at + " " + x.msg).join("<br/>");
+  el.innerHTML = last || "尚未开始";
+}
+function mxSetOut(msg, cls){
+  const o = $("#ppt-state");
+  if(!o) return;
+  o.textContent = msg;
+  o.className = "ppt-state" + (cls ? " " + cls : "");
+}
+/* 把匹配到的活动写进热身页（真实改写，不是假装） */
+function mxApplyWarmToPages(st, pages, pick, aiReason){
+  if(!pick || !pick.it) return false;
+  const it = pick.it;
+  let idx = pages.findIndex(p => p.type === "questions");
+  if(idx < 0) idx = pages.findIndex(p => /热|暖|导入/.test(String(p.title || "")));
+  if(idx < 0){
+    const host = pages.findIndex(p => p.type === "agenda");
+    idx = host >= 0 ? host + 1 : 1;
+    pages.splice(idx, 0, { type:"questions", kick:"WARM UP", title:"热身：" + it.name, items:[], note:"", img:"talk" });
+  }
+  const pg = pages[idx];
+  const steps = String(it.steps || "").split(/\n|；|;/).map(s => s.replace(/^\s*\d+[.、)]\s*/, "").trim()).filter(Boolean).slice(0, 4);
+  pg.type = "questions";
+  pg.title = smCut2("热身：" + it.name, 26);
+  pg.kick = "WARM UP";
+  pg.sub = (it.minutes || 5) + " 分钟 · " + (it.people || "全班") + (it.props ? " · 道具：" + it.props : "");
+  pg.items = (steps.length ? steps : ["按活动库步骤带领全班完成", "活动后请 2 位同学说一句感受", "把感受与今天的主题连起来"]).map(s => smCut2(s, 34));
+  pg.img = "talk";
+  const reason = aiReason || mxWarmReason(pick, st);
+  pg.note = smCut2("选《" + it.name + "》：" + reason + (it.notes ? "；注意：" + it.notes : ""), 90);
+  return true;
+}
+/* 复用判定：主题/年级/时长/教案/补充要求/页数任一变化才重新排课，否则保留用户单页修改 */
+function mxPlanKey(st){
+  return smPlanSig(st) + "|" + smHash(String(st.req || "")) + "|" + (st.pageN || 15);
+}
+/* PPTX → 真实验证：ZIP 能否解析、slide 页数、媒体文件数 */
+async function mxVerifyPptx(blob, expect){
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const v = { bytes:blob.size, zip:false, slides:0, media:0, sizeOk:blob.size > 20000 };
+  if(buf[0] !== 0x50 || buf[1] !== 0x4b) return v;
+  v.zip = true;
+  try{
+    const parts = await mxUnzip(buf, null);
+    v.slides = parts.filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p.name)).length;
+    v.media = parts.filter(p => /^ppt\/media\//.test(p.name)).length;
+    const bad = parts.filter(p => /^ppt\/slides\/slide\d+\.xml$/.test(p.name) && String(p.data.length) === "0").length;
+    v.badSlides = bad;
+  }catch(e){
+    v.zipErr = e && e.message || String(e);
+  }
+  v.countOk = v.slides === expect;
+  return v;
+}
+async function pptGenerate(){
+  const st = pptState();
+  const btn = $("#ppt-gen");
+  if(!st.topic) st.topic = "情绪管理";
+  if(btn) btn.disabled = true;
+  mxStyleInject();
+  MX_LOG.length = 0;
+  let stage = 0;
+  try{
+    if(typeof PptxGenJS === "undefined") throw new Error("PPT 引擎未加载");
+    /* 0 待上传：没有资料也允许用已有教案文字 */
+    mxStagePaint(0, -1, "资料 " + MX_MATS.length + " 份 · 教案文字 " + String(st.plan || "").trim().length + " 字");
+    mxLog("开始生成：" + st.topic + " · " + st.grade + " · " + st.minutes + " 分钟");
+    await new Promise(r => setTimeout(r, 30));
+
+    /* 1 正在解析：真实解析上传资料（图片走视觉模型） */
+    stage = 1;
+    mxStagePaint(1, -1, "正在解析资料…");
+    let parseErr = "";
+    if(MX_MATS.length){
+      const pending = MX_MATS.filter(m => m.status !== "ok");
+      for(const m of pending){
+        mxStagePaint(1, -1, "正在解析：" + m.name);
+        const good = await mxMatParse(m, st);
+        if(!good) parseErr += (parseErr ? "；" : "") + m.name + "：" + m.msg;
+        mxRefreshPpt(st);
+      }
+      const txt = mxMatText();
+      if(txt) mxApplyMatText(st, txt);
+      mxLog("资料解析完成：成功 " + MX_MATS.filter(m => m.status === "ok").length + "/" + MX_MATS.length);
+    }
+    if(!String(st.plan || "").trim() && !MX_MATS.length) throw new Error("没有教学内容：上传课本照片 / PDF / DOCX，或粘贴教案文字");
+    if(!String(st.plan || "").trim() && parseErr) throw new Error("资料解析失败：" + parseErr);
+    if(parseErr){
+      mxSetOut("部分资料解析失败：" + parseErr.slice(0, 80), "err");
+      mxLog("解析警告：" + parseErr);
+    }
+
+    /* 2 正在设计课堂：模型可用则按教案+活动排课，否则本地解析（真实分支） */
+    stage = 2;
+    mxStagePaint(2, -1, llmReady() ? "正在调用模型设计课堂流程…" : "未配置 AI，使用本地教案解析排课");
+    const warmPick = mxWarmMatch(st);
+    const planKeyNow = mxPlanKey(st);
+    const prev = data.__pptSmart;
+    const canReuse = !!(prev && Array.isArray(prev.pages) && prev.pages.length >= 10 &&
+      prev.sig === smPlanSig(st) && (!prev.planKey || prev.planKey === planKeyNow));
+    let pages, reused = false;
+    if(canReuse){
+      pages = mxFitPages(st, prev.pages.map(x => Object.assign({}, x)));
+      reused = true;
+      mxStagePaint(2, -1, "沿用当前大纲（保留你的单页修改与换图）");
+      mxLog("沿用当前大纲：" + pages.length + " 页，未重新调模型");
+    }else if(llmReady() && !llmModelIsImage()){
+      try{
+        pages = await mxAiPages(st, warmPick);
+        mxLog("模型排课完成：" + pages.length + " 页");
+      }catch(e){
+        mxLog("模型排课失败，改用本地解析：" + (e && e.message || e));
+        mxStagePaint(2, -1, "模型排课失败（" + (e && e.message || e) + "），改用本地解析");
+        pages = mxFitPages(st, smNorm(smLessonParse(mxMatText() || st.plan, st), st));
+      }
+    }else{
+      pages = mxFitPages(st, smNorm(smLessonParse(mxMatText() || st.plan, st), st));
+      mxLog("本地排课完成：" + pages.length + " 页");
+    }
+    pages = pages.map(p => Object.assign({}, p));
+
+    /* 3 正在匹配活动：写入热身页，没有匹配就明确说明 */
+    stage = 3;
+    mxStagePaint(3, -1, warmPick ? "正在写入热身活动：" + warmPick.it.name : "活动库没有强匹配，使用本地提问开场");
+    const warmAlready = !!(warmPick && pages.some(p => String(p.title || "").indexOf(warmPick.it.name) >= 0));
+    const usedWarm = (reused && warmAlready) ? true : mxApplyWarmToPages(st, pages, warmPick, "");
+    if(warmPick){
+      st.warmPick = warmPick.it.id;
+      mxLog("热身匹配：《" + warmPick.it.name + "》" + (usedWarm ? "已写入页面" : "写入失败"));
+    }else{
+      mxLog("热身匹配：活动库为空或分数过低，改用本地提问开场（未伪造活动）");
+    }
+    data.__pptSmart = { sig:smPlanSig(st), planKey:planKeyNow, req:(st.req || ""), at:Date.now(), pages:pages, src:"pipeline" };
+    store.save();
+
+    /* 4 正在匹配图片：逐页真实打分；素材库为空时明确退回内置手绘 */
+    stage = 4;
+    mxStagePaint(4, -1, "正在为需要插画的页面匹配图片…");
+    const flat = pages.filter(p => ["support","teacher"].indexOf(p.type) < 0);
+    const need = flat.filter(p => ["cover","statement","visual","end"].indexOf(p.type) >= 0);
+    let matched = 0, fromLib = 0;
+    need.forEach(p => {
+      const hit = mxImgPick(p, st);
+      if(hit){ matched++; fromLib++; }
+    });
+    const imgNote = mxImgLib().length
+      ? ("配图 " + matched + "/" + need.length + " 页命中素材库；其余用内置手绘")
+      : (need.length ? ("素材库为空：需要插画的 " + need.length + " 页使用内置手绘（未伪造素材）") : "本课不需要配图");
+    mxStagePaint(4, -1, imgNote);
+    mxLog("配图匹配：" + imgNote);
+
+    /* 5 正在生成 PPT：真实写入字节，并解析 pptx 校验 */
+    stage = 5;
+    mxStagePaint(5, -1, "正在生成 PPTX…");
+    let pptx = ppBuildDeck(st);
+    let outType = "blob", blob = null;
+    try{
+      blob = await pptx.write({ outputType: outType });
+    }catch(e){
+      mxLog("blob 导出失败，尝试 base64：" + (e && e.message || e));
+      const b64 = await pptx.write({ outputType:"base64" });
+      const bin = atob(String(b64).replace(/^data:[^,]+,/, ""));
+      const u8 = new Uint8Array(bin.length);
+      for(let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      blob = new Blob([u8], { type:"application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+    }
+    if(!blob || !blob.size) throw new Error("生成的 PPTX 为空");
+    mxLog("PPTX 已生成：" + mxBytes(blob.size) + " · " + pages.length + " 页");
+
+    /* 6 正在检查：文件结构 + 页面内容质检，问题能修就修并重建 */
+    stage = 6;
+    mxStagePaint(6, -1, "正在检查文件与页面质量…");
+    let verify = await mxVerifyPptx(blob, pages.length);
+    let qa = mxQaPages(st, pages);
+    let fixed = { n:0, msg:"" };
+    const badIssues = qa.filter(x => x.lv !== "ok").length;
+    if(badIssues){
+      fixed = mxQaFix(st);
+      if(fixed.n > 0){
+        mxLog("质检自动修复 " + fixed.n + " 处，重建文件");
+        pages = smPlan(st);
+        pptx = ppBuildDeck(st);
+        blob = await pptx.write({ outputType:"blob" });
+        verify = await mxVerifyPptx(blob, pages.length);
+        qa = mxQaPages(st, pages);
+      }
+    }
+    const fileChecks = [
+      { k:"文件可解析", lv:verify.zip ? "ok" : "bad", msg:verify.zip ? "ZIP 结构正常，可被 PowerPoint 打开检查" : "文件结构异常：" + (verify.zipErr || "") },
+      { k:"页数", lv:verify.countOk ? "ok" : "bad", msg:"文件内 " + verify.slides + " 页，大纲 " + pages.length + " 页" + (verify.countOk ? "" : "（不一致，请重新生成）") },
+      { k:"文件大小", lv:verify.sizeOk ? "ok" : "warn", msg:mxBytes(verify.bytes) + (verify.sizeOk ? "，含真实内容" : "，偏小，请检查") },
+      { k:"图片", lv:"ok", msg:"文件内嵌 " + verify.media + " 个媒体文件" + (verify.badSlides ? "；" + verify.badSlides + " 页 XML 为空" : "") }
+    ];
+    const allQa = fileChecks.concat(qa);
+    if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(allQa);
+    if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "已检查 " + pages.length + " 页 · " + (fixed.n ? "自动修复 " + fixed.n + " 处" : "无需自动修复");
+
+    /* 7 生成完成：保存版本 + 下载 */
+    stage = 7;
+    const safe = String(st.topic).replace(/[\\/:*?"<>|]/g, "");
+    const fileName = st.grade + "_" + safe + "_课件.pptx";
+    MX_LAST.blob = blob; MX_LAST.name = fileName; MX_LAST.slides = verify.slides; MX_LAST.at = Date.now(); MX_LAST.bytes = blob.size;
+    mxVerSave(st, "生成 " + new Date().toLocaleTimeString("zh-CN"));
+    mxDownload(blob, fileName);
+    let extra = "";
+    if(st.toPlan && pptAddPlan(st)) extra = "　已记入课程排期";
+    mxStagePaint(7, -1, "已生成 " + fileName + "（" + mxBytes(blob.size) + "）");
+    mxSetOut("已生成 " + fileName + " · " + verify.slides + " 页" + extra, "ok");
+    mxLog("完成：" + fileName + " · " + verify.slides + " 页 · " + mxBytes(blob.size));
+  }catch(err){
+    const msg = err && err.message ? err.message : String(err);
+    mxStagePaint(Math.min(7, stage), Math.min(7, stage), "失败：" + msg);
+    mxSetOut("生成失败：" + msg, "err");
+    mxLog("失败：" + msg);
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+function mxRedownload(){
+  if(!MX_LAST.blob){ mxSetOut("还没有生成过文件", "err"); return; }
+  mxDownload(MX_LAST.blob, MX_LAST.name);
+  mxSetOut("已再次下载 " + MX_LAST.name, "ok");
+}
+
+/* ---------- 新界面事件绑定（在 renderPpt 末尾调用） ---------- */
+function mxBindPpt(st){
+  mxStyleInject();
+  const matFile = $("#ppt-mat-file");
+  if($("#ppt-mat-add")) $("#ppt-mat-add").onclick = () => matFile && matFile.click();
+  if(matFile) matFile.onchange = async e => {
+    const files = Array.from(e.target.files || []); e.target.value = "";
+    if(!files.length) return;
+    const r = await mxMatAdd(files);
+    mxRefreshPpt(st);
+    if(r.errors.length){
+      alert("以下文件未加入：\n" + r.errors.join("\n"));
+    }
+  };
+  if($("#ppt-mats")) $("#ppt-mats").onclick = e => {
+    const op = e.target.closest("[data-mxmat]");
+    const row = e.target.closest("[data-mid]");
+    if(!op || !row) return;
+    const id = row.dataset.mid, k = op.dataset.mxmat;
+    if(k === "del"){ mxMatDel(id); mxRefreshPpt(st); return; }
+    if(k === "up"){ mxMatMove(id, -1); mxRefreshPpt(st); return; }
+    if(k === "down"){ mxMatMove(id, 1); mxRefreshPpt(st); return; }
+    if(k === "view"){
+      const m = MX_MATS.find(x => x.id === id);
+      if(m && m.thumb) mxDialog("<h4>" + mxEsc(m.name) + "</h4><img src='" + m.thumb + "' style='width:100%;border-radius:10px'/><p class='hint'>第 " + (MX_MATS.indexOf(m) + 1) + " 份 · " + mxBytes(m.size) + " · 按此顺序进入解析</p>");
+    }
+  };
+  if($("#ppt-parse")) $("#ppt-parse").onclick = async () => {
+    const btn = $("#ppt-parse");
+    if(btn) btn.disabled = true;
+    const st0 = $("#ppt-planstate");
+    try{
+      if(!MX_MATS.length) throw new Error("先上传教学资料");
+      if(st0) st0.textContent = "正在逐份解析资料…";
+      const r = await mxMatParseAll(st, (i, n, m) => {
+        if(st0) st0.textContent = "正在解析 " + (i + 1) + "/" + n + "：" + m.name;
+      });
+      const txt = mxMatText();
+      if(!txt) throw new Error("没有解析出可用文字，请检查资料或改用文字稿");
+      mxApplyMatText(st, txt);
+      if($("#ppt-plan")) $("#ppt-plan").value = st.plan;
+      mxRefreshPpt(st);
+      let outlined = false;
+      if(llmReady() && !llmModelIsImage()){
+        if(st0) st0.textContent = "资料已解析，正在按教案设计课堂流程…";
+        try{
+          const pages = await mxAiPages(st, mxWarmMatch(st));
+          data.__pptSmart = { sig:smPlanSig(st), planKey:mxPlanKey(st), req:(st.req || ""), at:Date.now(), pages:pages, src:"ai" };
+          store.save();
+          if(PPT_LLM.sync) PPT_LLM.sync();
+          mxRefreshPpt(st);
+          outlined = true;
+        }catch(e){ mxLog("模型排课失败，改用本地解析：" + (e && e.message || e)); }
+      }
+      if(!outlined) await smLessonWrite(st);
+      if(r.fail && st0) st0.textContent = "已解析 " + r.ok + " 份，失败 " + r.fail + " 份；成功的内容已写入教案";
+    }catch(err){
+      if(st0) st0.textContent = "解析失败：" + (err && err.message || err);
+    }finally{
+      if(btn) btn.disabled = false;
+    }
+  };
+  if($("#ppt-warmlib")) $("#ppt-warmlib").onclick = async e => {
+    const t = e.target.closest("[data-mxwarm]");
+    if(!t) return;
+    const k = t.dataset.mxwarm;
+    if(k === "list") mxWarmManageDialog(st);
+    if(k === "export"){ try{ mxWarmExport(); }catch(err){ alert(err.message || err); } }
+    if(k === "ai"){
+      try{
+        t.disabled = true;
+        const r = await mxWarmAiPick(st);
+        st.warmPick = r.item.id;
+        st.warm = [r.item.name].concat(String(st.warm || "").split("\n").filter(Boolean)).join("\n");
+        if($("#ppt-warm")) $("#ppt-warm").value = st.warm;
+        store.save(); mxRefreshPpt(st);
+        alert("AI 选择：《" + r.item.name + "》\n理由：" + r.reason + (r.adjust ? "\n调整：" + r.adjust : ""));
+      }catch(err){ alert("AI 匹配失败：" + (err && err.message || err)); }
+      finally{ t.disabled = false; }
+    }
+  };
+  if($("#ppt-warm-lib-import")) $("#ppt-warm-lib-import").onclick = () => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = ".xlsx,.csv,.txt";
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0];
+      if(!f) return;
+      try{
+        const rows = /\.(csv|txt)$/i.test(f.name) ? mxCsvRows(await f.text()) : await mxXlsxRead(f);
+        const r = mxWarmImportRows(rows);
+        alert("已导入 " + r.add + " 条" + (r.skip ? "（跳过重复 " + r.skip + " 条）" : "") + "，活动库现有 " + r.total + " 条");
+        mxRefreshPpt(st);
+      }catch(err){ alert("导入失败：" + (err && err.message || err)); }
+    };
+    inp.click();
+  };
+  if($("#ppt-imglib")) $("#ppt-imglib").onclick = e => {
+    const add = e.target.closest("[data-mximg='add']");
+    if(add){ mxImgUpload(st); return; }
+    const mg = e.target.closest("[data-mximg='manage']");
+    if(mg){ mxImgManageDialog(st); return; }
+    const sel = e.target.closest("[data-mximgsel]");
+    if(sel) mxImgMetaDialog(st, sel.dataset.mximgsel);
+  };
+  if($("#ppt-qa-fix")) $("#ppt-qa-fix").onclick = () => {
+    const r = mxQaFix(st);
+    mxRefreshPpt(st);
+    if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = r.msg;
+    mxSetOut(r.msg, r.n ? "ok" : "err");
+  };
+  if($("#ppt-redl")) $("#ppt-redl").onclick = mxRedownload;
+  if($("#ppt-version")) $("#ppt-version").onclick = () => {
+    if(!MX_VERS.length){ alert("还没有历史版本：每次生成会自动保留最近 5 个版本。"); return; }
+    const box = mxDialog("<h4>课件版本（本会话）</h4><p class='hint'>恢复会覆盖当前大纲与页面内容；恢复到旧版本后仍需重新生成 PPTX。</p>" +
+      "<ul class='mx-list'>" + MX_VERS.map((v, i) => "<li><span class='nm'>" + (i + 1) + ". " + mxEsc(v.label) + " · " + v.pages.length + " 页<br/><span class='mx-mini'>" +
+        new Date(v.at).toLocaleString("zh-CN") + "</span></span><button class='mx-btn' data-mxver='" + i + "'>恢复</button></li>").join("") + "</ul>");
+    box.addEventListener("click", e => {
+      const b = e.target.closest("[data-mxver]");
+      if(!b) return;
+      if(!confirm("恢复这个版本？当前大纲会被覆盖。")) return;
+      if(mxVerRestore(+b.dataset.mxver)){ box.remove(); mxRefreshPpt(st); mxSetOut("已恢复历史版本，可重新生成 PPTX", "ok"); }
+    });
+  };
+  if($("#pv-grid")) $("#pv-grid").addEventListener("click", e => {
+    const op = e.target.closest("[data-pvops]");
+    if(op){ e.stopPropagation(); e.preventDefault(); mxPageOpsDialog(st, +op.dataset.pvops); }
+  });
+}
+
 function renderPpt(){
   const st = pptState();
   const grades = ["初一","初二","初三","高一","高二","高三"];
@@ -4143,7 +6162,9 @@ function renderPpt(){
           </div>
           <div class="field"><label>学段</label><div class="seg seg-6" id="ppt-grade">${segHTML(grades, st.grade)}</div></div>
           <div class="frow">
-            <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div></div>
+            <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="mx-mini">课件页数</span><input id="ppt-pages" type="number" min="10" max="18" value="${st.pageN||15}" style="width:64px;border:1px solid #E2DBCE;border-radius:7px;padding:4px 6px;font-size:12px"/><span class="mx-mini">页（10–18）</span></div>
+            </div>
             <div class="field"><label>版式</label><div class="seg seg-3" id="ppt-style"><div class="opt ${(st.style||"smart")==="smart"?"on":""}" data-v="smart">智能版式</div><div class="opt ${st.style==="book"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
           </div>
           <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
@@ -4151,8 +6172,17 @@ function renderPpt(){
             <textarea id="ppt-req" rows="2" style="min-height:62px" placeholder="例如：初三、节奏紧、多用数据和流程；少用大段文字；结尾落到行动">${esc(st.req||"")}</textarea>
             <div class="ppt-ainote">填好后点「AI 编排版式」，模型会按要求重排页面顺序与版式；不填则用内置版式。</div>
           </div>
-          <div class="field"><label>教案 / 课本 <span class="en">LESSON</span></label>
-            <textarea id="ppt-plan" rows="6" style="min-height:118px" placeholder="粘贴教案文字；或点「识别课本照片」，上传课本 / 教案拍照（可多张）">${esc(st.plan||"")}</textarea>
+          <div class="field"><label>教学资料 <span class="en">MATERIALS</span></label>
+            <div class="mx-pre" style="margin-bottom:8px">
+              <button class="btn ghost" id="ppt-mat-add" style="height:30px;padding:0 12px;font-size:12px">上传照片 / PDF / DOCX</button>
+              <button class="btn ghost" id="ppt-parse" style="height:30px;padding:0 12px;font-size:12px">解析资料并排课</button>
+            </div>
+            <input type="file" id="ppt-mat-file" accept=".jpg,.jpeg,.png,.webp,.pdf,.docx,.txt,.md" multiple hidden />
+            <div id="ppt-mats">${mxMatsHTML()}</div>
+            <div class="ppt-ainote" id="ppt-matstate">${mxMatStats()}</div>
+          </div>
+          <div class="field"><label>教案 / 课本文字 <span class="en">LESSON</span></label>
+            <textarea id="ppt-plan" rows="6" style="min-height:118px" placeholder="粘贴教案文字；上传资料后会自动写入这里，仍可手动修改">${esc(st.plan||"")}</textarea>
             <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
               <button class="btn ghost" id="ppt-planmk" style="height:30px;padding:0 12px;font-size:12px">按教案排课</button>
               <button class="btn ghost" id="ppt-ocr" style="height:30px;padding:0 12px;font-size:12px">识别课本照片</button>
@@ -4162,22 +6192,21 @@ function renderPpt(){
             <input type="file" id="ppt-photo-file" accept="image/*" multiple hidden />
             <div class="ppt-ainote" id="ppt-planstate">${planState}</div>
           </div>
-          <div class="field"><label>热身活动文档 <span class="en">WARM-UP</span></label>
-            <textarea id="ppt-warm" rows="3" style="min-height:84px" placeholder="一行一个活动名，例如：&#10;情绪猜猜看&#10;优点轰炸&#10;我说你画">${esc(st.warm||"")}</textarea>
+          <div class="field"><label>热身活动库 <span class="en">WARM-UP</span></label>
+            <div id="ppt-warmlib">${mxWarmPanelHTML(st)}</div>
+            <textarea id="ppt-warm" rows="3" style="min-height:70px;margin-top:8px" placeholder="一行一个活动名（可选）；更推荐用上面的活动库导入 Excel">${esc(st.warm||"")}</textarea>
             <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-              <button class="btn ghost" id="ppt-warmfile" style="height:30px;padding:0 12px;font-size:12px">导入活动清单</button>
+              <button class="btn ghost" id="ppt-warm-lib-import" style="height:30px;padding:0 12px;font-size:12px">导入 Excel 到活动库</button>
+              <button class="btn ghost" id="ppt-warmfile" style="height:30px;padding:0 12px;font-size:12px">导入文字清单</button>
             </div>
             <input type="file" id="ppt-warm-file" accept=".txt,.md,text/plain" hidden />
             <div class="ppt-ainote" id="ppt-warmstate">${warmState}</div>
           </div>
-          <div class="field"><label>图片素材库 <span class="en">IMAGES</span></label>
-            <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn ghost" id="ppt-lib-add" style="height:30px;padding:0 12px;font-size:12px">上传图片</button>
-              <button class="btn ghost" id="ppt-lib-clear" style="height:30px;padding:0 12px;font-size:12px">清空素材库</button>
-            </div>
-            <input type="file" id="ppt-lib-file" accept="image/*" multiple hidden />
+          <div class="field"><label>插画素材库 <span class="en">IMAGES</span></label>
+            <div id="ppt-imglib">${mxLibPanelHTML(st)}</div>
             <div class="ppt-ainote" id="ppt-libnote">${smLibStats()}</div>
             <label class="ppt-toggle" style="margin-top:6px"><input type="checkbox" id="ppt-imgs" ${st.imgs!==false?"checked":""}/> 自动配图（素材库优先，其次内置手绘 / AI 插画）</label>
+          </div>
           </div>
           <div class="field"><label>插画 <span class="en">ART</span></label>
             <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
@@ -4187,10 +6216,13 @@ function renderPpt(){
           <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
           <div class="ppt-actions">
             <button class="btn" id="ppt-gen">一键生成 PPTX</button>
+            <button class="btn ghost" id="ppt-redl">再次下载</button>
+            <button class="btn ghost" id="ppt-version">版本</button>
             <button class="btn ghost" id="ppt-pv">视觉预览</button>
             <button class="btn" id="llm-write">AI 写这一课</button>
             <span class="ppt-state" id="ppt-state"></span>
           </div>
+          <div id="ppt-stage2">${mxStageBarHTML()}</div>
           <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
         </div>
         <div class="ppt-card" id="ppt-llm-card">
@@ -4204,7 +6236,7 @@ function renderPpt(){
           <div class="field"><label>接口地址</label><input id="llm-base" style="width:100%" placeholder="https://api.deepseek.com/v1" value="${attr(PPT_LLM.base)}"/></div>
           <div class="frow">
             <div class="field"><label>模型（对话模型）</label><input id="llm-model" style="width:100%" placeholder="deepseek-chat" value="${attr(PPT_LLM.model)}"/></div>
-            <div class="field"><label>API Key</label><input id="llm-key" style="width:100%" type="password" placeholder="sk-..." value="${attr(PPT_LLM.key)}"/></div>
+            <div class="field"><label>API Key</label><input id="llm-key" style="width:100%" type="password" autocomplete="new-password" placeholder="${PPT_LLM.key ? "已保存 Key，粘贴新的可覆盖" : "sk-..."}" value=""/></div>
           </div>
           <div class="field"><label>视觉模型（识别课本照片，可留空）</label><input id="llm-vmodel" style="width:100%" placeholder="留空则用上面的对话模型；支持图片输入的如 doubao-seed-1-6 / Qwen2.5-VL / gpt-4o-mini" value="${attr(PPT_LLM.vmodel||"")}"/></div>
           <div class="ppt-ainote" id="llm-state"></div>
@@ -4220,7 +6252,17 @@ function renderPpt(){
         <div class="ppt-card">
           <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
           <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
+          <div class="ppt-actions" style="margin-top:8px">
+            <button class="btn ghost" id="ppt-edit-outline" style="height:30px;padding:0 12px;font-size:12px">编辑大纲</button>
+            <button class="btn ghost" id="ppt-export-outline" style="height:30px;padding:0 12px;font-size:12px">导出大纲</button>
+          </div>
           <div class="ppt-note" id="ppt-meta">${smPlan(st).length} 页 · 16:9 · ${st.style==="smart"?"智能版式":st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+        <div class="ppt-card">
+          <h3>质量检查 <span class="en">QA</span></h3>
+          <div class="ppt-ainote" id="ppt-qa-sub">检查 ${smPlan(st).length} 页 · 生成后还会检查文件本身</div>
+          <div id="ppt-qa">${mxQaHTML(mxQaPages(st, smPlan(st)))}</div>
+          <div class="ppt-actions" style="margin-top:8px"><button class="btn ghost" id="ppt-qa-fix" style="height:30px;padding:0 12px;font-size:12px">一键修复可自动处理项</button></div>
+        </div>
         </div>
         <div class="ppt-card" id="pv-card">
           <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
@@ -4236,12 +6278,12 @@ function renderPpt(){
       ? "已录入 " + n + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排 12–16 页"
       : "可粘贴教案，或上传课本照片识别（需视觉模型）。照片首张会自动取主色，作为整份配色。";
     if($("#ppt-warmstate")){
-      const wn = smWarmList(st.warm).length;
-      $("#ppt-warmstate").textContent = wn
-        ? "已录入 " + wn + " 个活动 · 排课时按主题挑 1 个最匹配的，并写选择理由"
-        : "一行一个活动名即可；排课时自动与课堂主题匹配";
+      const libN = mxWarmLib().length, wn = smWarmList(st.warm).length;
+      $("#ppt-warmstate").textContent = libN
+        ? "活动库 " + libN + " 条已就绪；排课时按主题与年级匹配" + (wn ? "（另手动录入 " + wn + " 个）" : "")
+        : (wn ? "已录入 " + wn + " 个活动 · 排课时按主题挑 1 个最匹配的" : "一行一个活动名即可，或导入 Excel；活动库为空时用本地提问开场");
     }
-    if($("#ppt-libnote")) $("#ppt-libnote").textContent = smLibStats();
+    if($("#ppt-libnote")) $("#ppt-libnote").textContent = mxImgLib().length ? "素材库 " + mxImgLib().length + " 张（按主题/情绪/年级匹配）" : "素材库为空：配图会退回内置手绘，不会伪造匹配";
   };
   const sync = () => {
     if($("#llm-plan")) $("#llm-plan").textContent = smHasAi(st) ? "重新编排版式" : "AI 编排版式";
@@ -4255,10 +6297,13 @@ function renderPpt(){
     store.save();
   };
   $("#pv-grid").addEventListener("click", e => {
+    if(e.target.closest("[data-pvops]")) return;
     const cell = e.target.closest(".pv-cell");
     if(cell) pvOpen(+cell.dataset.pv);
   });
   $("#ppt-pv").onclick = () => pvOpen(0);
+  if($("#ppt-edit-outline")) $("#ppt-edit-outline").onclick = () => mxOutlineDialog(st);
+  if($("#ppt-export-outline")) $("#ppt-export-outline").onclick = () => mxOutlineDownload(st);
   $("#ppt-topic").addEventListener("input", e => { st.topic = e.target.value.trim(); sync(); });
   $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.onclick=()=>{
     st.topic = el.dataset.topic; $("#ppt-topic").value = st.topic; sync();
@@ -4384,13 +6429,13 @@ function renderPpt(){
     if($("#llm-base")) $("#llm-base").value = PPT_LLM.base;
     if($("#llm-model")) $("#llm-model").value = PPT_LLM.model;
     if($("#llm-vmodel")) $("#llm-vmodel").value = PPT_LLM.vmodel || "";
-    if($("#llm-key")) $("#llm-key").value = PPT_LLM.key;
   };
   const llmRead = () => {
     PPT_LLM.base = ($("#llm-base").value || "").trim();
     PPT_LLM.model = ($("#llm-model").value || "").trim();
     PPT_LLM.vmodel = ($("#llm-vmodel") ? ($("#llm-vmodel").value || "").trim() : "");
-    PPT_LLM.key = ($("#llm-key").value || "").trim();
+    const keyNew = ($("#llm-key").value || "").trim();
+    if(keyNew) PPT_LLM.key = keyNew;
     llmSaveCfg();
   };
   llmFill();
@@ -4424,33 +6469,10 @@ function renderPpt(){
       llmPaint("已清空 Key。", "ok");
     }
   });
+  mxBindPpt(st);
 }
 
-async function pptGenerate(){
-  const st = pptState();
-  const btn = $("#ppt-gen"), out = $("#ppt-state");
-  if(!st.topic) st.topic = "情绪管理";
-  const set = (msg, cls) => { out.textContent = msg; out.className = "ppt-state" + (cls?(" "+cls):""); };
-  btn.disabled = true; set("正在生成，请稍等…");
-  try{
-    if(typeof PptxGenJS === "undefined") throw new Error("PPT 引擎未加载");
-    if((st.style || "smart") === "smart" && String(st.plan || "").trim() && !smHasAi(st)){
-      data.__pptSmart = { sig:smPlanSig(st), req:(st.req || ""), at:Date.now(), pages:smNorm(smLessonParse(st.plan, st), st), src:"lesson" };
-      store.save();
-    }
-    const pptx = ppBuildDeck(st);
-    const safe = st.topic.replace(/[\\/:*?"<>|]/g, "");
-    const fileName = `${st.grade}_${safe}_课件.pptx`;
-    await pptx.writeFile({ fileName });
-    let extra = "";
-    if(st.toPlan && pptAddPlan(st)) extra = "　已记入课程排期";
-    set("已生成 " + fileName + "，在浏览器下载栏查看" + extra, "ok");
-  }catch(err){
-    set("生成失败：" + (err && err.message ? err.message : err), "err");
-  }finally{
-    btn.disabled = false;
-  }
-}
+
 
 function pptAddPlan(st){
   data.plan = data.plan || [];
