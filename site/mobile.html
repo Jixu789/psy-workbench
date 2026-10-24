@@ -390,6 +390,13 @@
   .ppt-col-main > .ppt-card { flex:0 0 auto; }
   .ppt-wrap .seg.seg-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; }
   .ppt-wrap .seg.seg-6 .opt { min-width:0; padding:9px 4px; }
+  .ppt-wrap .seg.seg-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .ppt-wrap .seg.seg-3 .opt { min-width:0; padding:9px 4px; font-size:12.5px; }
+  @media (max-width:520px){
+    .ppt-wrap .frow { display:block; }
+    .ppt-wrap .frow > .field + .field { margin-top:12px; }
+    .ppt-wrap .seg.seg-3 .opt { font-size:12px; padding:9px 2px; }
+  }
   .ppt-card { background:var(--surface-card); border:1px solid var(--border); border-radius:var(--radius-tile); box-shadow:var(--shadow-card); padding:18px 18px 16px; }
   .ppt-card > h3 { font-size:15px; font-weight:800; letter-spacing:-.01em; margin-bottom:14px; display:flex; align-items:center; gap:9px; }
   .ppt-card > h3 .en { font-size:10px; letter-spacing:.14em; color:var(--text-tertiary); font-weight:700; }
@@ -1722,6 +1729,8 @@ function llmPaint(msg, cls, extra){
   if(!msg){ el.innerHTML = llmStatusHTML(); return; }
   const c = cls === "err" ? "var(--danger)" : cls === "ok" ? "var(--module-1)" : "var(--text-secondary)";
   el.innerHTML = '<span style="color:' + c + ';font-weight:700">' + esc(msg) + '</span>' + (extra || "");
+  if(typeof smHasAi === "function" && smHasAi(pptState()) && el.innerHTML.indexOf('data-llm="planreset"') < 0)
+    el.innerHTML += ' · <span class="up" data-llm="planreset">恢复内置版式</span>';
 }
 function llmErr(err){
   const m = (err && err.message) || "未知错误";
@@ -1771,6 +1780,669 @@ async function llmWrite(st){
   }
 }
 
+﻿/* ============================================================
+   智能版式（SMART）— 浏览器内移植的设计体系
+   · 结构先行：一页 = 一个版式原型 + 一段内容，版式随主题切换
+   · 原生形状：预览与 pptx 共用同一套「元素原语」，所见即所得
+   · 版式规范：透明卡片不挡背景、正文 ≥ 17pt、每页只讲一件事
+   · 参考：ppt-master（先定结构再设计 / 原生 PPT 对象）
+           harness-anything · pptengine（JSON 原语 + 13 种元素类型）
+   ============================================================ */
+const SM_W = 13.333, SM_H = 7.5, SM_M = 0.78;
+const SM_KEY = "psy-ppt-smart-v1";
+const SM_TYPES = ["cover","agenda","questions","statement","columns","process","timeline","quote","checklist","pulse","stats","cards","support","teacher","end"];
+const SM_LABEL = { cover:"封面", agenda:"本课目标", questions:"暖身导入", statement:"观点", columns:"三个要点", process:"流程", timeline:"时间线", quote:"案例讨论", checklist:"方法清单", pulse:"放松练习", stats:"课堂小结", cards:"课后延伸", support:"求助资源", teacher:"讲师页", end:"结束页" };
+
+/* 主题视觉语言：同一套版式，三种图形语法 */
+function smPal(st){
+  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const dark = st.theme === "night";
+  return { bg:T.bg, deep:T.deep, card:T.card, ink:T.ink, ink2:T.ink2,
+           line:T.line, ac:T.accent, ac2:T.accent2, soft:T.soft, nm:T.nm,
+           dark:dark, deco: st.theme === "mint" ? "grid" : dark ? "ring" : "dot",
+           body: dark ? "FFFFFF" : T.ink };
+}
+
+/* 深色页：封面 / 结束 / 求助，以及主题为 night 时的整册 */
+function smIsDark(pg, P){
+  return !!P.dark || pg.type === "cover" || pg.type === "end" || pg.type === "support" || !!pg.dark;
+}
+
+/* 预折行 + 自动缩字（复用 bookWrap 的 CJK 禁则，PowerPoint 不会自己做） */
+function smFit(s, fs, w, h){
+  const txt = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  if(!txt) return { txt:"", fs:fs };
+  const lh = 1.45;
+  let size = fs, out = bookWrap(txt, size, w);
+  for(let k = 0; k < 14; k++){
+    const rows = out.split("\n").length;
+    if(rows * size * lh / 72 <= h || size <= 11) break;
+    size = Math.max(11, size * 0.94);
+    out = bookWrap(txt, size, w);
+  }
+  const rows = out.split("\n").length;
+  const cap = Math.max(1, Math.floor(h * 72 / (size * lh)));
+  if(rows > cap){ out = out.split("\n").slice(0, cap).join("\n"); }
+  return { txt:out, fs:size };
+}
+
+/* ---------- 元素原语 ---------- */
+function smRect(x,y,w,h,opt){
+  const o = Object.assign({ t:"rect", x:x, y:y, w:w, h:h }, opt || {});
+  return o;
+}
+function smRound(x,y,w,h,opt){
+  const o = Object.assign({ t:"round", x:x, y:y, w:w, h:h, r:0.1 }, opt || {});
+  return o;
+}
+function smEll(x,y,w,h,opt){
+  const o = Object.assign({ t:"ellipse", x:x, y:y, w:w, h:h }, opt || {});
+  return o;
+}
+function smText(s,x,y,w,h,opt){
+  const o = Object.assign({ t:"text", x:x, y:y, w:w, h:h, txt:String(s == null ? "" : s),
+    fs:18, bold:false, color:"000000", align:"left", valign:"top", ls:0 }, opt || {});
+  return o;
+}
+/* 标题：自动缩字 + 可折行，默认垂直居中 */
+function smTitle(s,x,y,w,h,fs,opt){
+  const f = smFit(s, fs, w, h - 0.06);
+  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, bold:true, valign:"middle" }, opt || {}));
+}
+/* 正文块：自动缩字 */
+function smBody(s,x,y,w,h,fs,opt){
+  const f = smFit(s, fs, w, h);
+  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, valign:"top" }, opt || {}));
+}
+
+/* ---------- 渲染器 1：DOM 预览（与 pptx 同坐标） ---------- */
+function smElHTML(e){
+  const P = v => (v / SM_W * 100).toFixed(3) + "%";
+  const V = v => (v / SM_H * 100).toFixed(3) + "%";
+  const FS = pt => (pt * 0.104167).toFixed(3) + "cqw";
+  const RAD = v => (v / SM_W * 100).toFixed(3) + "cqw";
+  const rgba = (c,a) => {
+    const n = parseInt(String(c || "000000").replace("#",""), 16);
+    const al = (100 - (a == null ? 0 : a)) / 100;
+    return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + al.toFixed(3) + ")";
+  };
+  const box = "position:absolute;left:" + P(e.x) + ";top:" + V(e.y) + ";width:" + P(e.w) + ";height:" + V(e.h) + ";";
+  const rot = e.rot ? "transform:rotate(" + e.rot + "deg);" : "";
+  if(e.t === "text"){
+    const al = e.align === "center" ? "center" : e.align === "right" ? "right" : "left";
+    const va = e.valign === "middle" ? "center" : e.valign === "bottom" ? "flex-end" : "flex-start";
+    return '<div class="pv-txt" style="' + box + rot + "display:flex;flex-direction:column;justify-content:" + va +
+      ";text-align:" + al + ";font-size:" + FS(e.fs) + ";line-height:1.45;white-space:pre-line;font-weight:" +
+      (e.bold ? 800 : 500) + ";color:" + rgba(e.color, 0) + ";letter-spacing:" + (e.ls || 0) * 0.01 + "em;" +
+      'overflow:hidden;word-break:break-word">' + esc(e.txt) + "</div>";
+  }
+  const bg = e.fill ? "background:" + rgba(e.fill.c, e.fill.a) + ";" : "background:transparent;";
+  const ln = e.line && e.line.w > 0 ? "border:" + (e.line.w * 0.104167).toFixed(3) + "cqw solid " + rgba(e.line.c, e.line.a) + ";" : "";
+  const br = e.t === "ellipse" ? "border-radius:50%;" : "border-radius:" + RAD(e.t === "round" ? (e.r || 0.1) : (e.r || 0)) + ";";
+  return '<div style="' + box + bg + ln + br + rot + '"></div>';
+}
+function smSlideHTML(pg, idx, st){
+  const P = smPal(st);
+  const els = smLayout(pg, idx, st, P);
+  const bg = smIsDark(pg, P) ? P.deep : P.bg;
+  return '<div class="pv-slide" style="background:#' + bg + '">' + els.map(smElHTML).join("") + "</div>";
+}
+
+/* ---------- 渲染器 2：PptxGenJS（原生形状，可编辑） ---------- */
+function smDraw(s, e, F){
+  const fill = e.fill ? { color:e.fill.c, transparency:(e.fill.a == null ? 0 : e.fill.a) } : undefined;
+  const line = e.line && e.line.w > 0
+    ? { color:e.line.c, width:e.line.w, transparency:(e.line.a == null ? 0 : e.line.a) }
+    : { color:e.fill ? e.fill.c : "FFFFFF", transparency:100 };
+  if(e.t === "text"){
+    const o = { x:e.x, y:e.y, w:e.w, h:e.h, fontFace:F, fontSize:e.fs, bold:!!e.bold,
+      color:e.color, align:e.align || "left", valign:e.valign || "top",
+      lineSpacing:e.fs * 1.45, charSpacing:e.ls || 0, margin:0.02 };
+    if(e.rot) o.rotate = e.rot;
+    s.addText(e.txt, o);
+    return;
+  }
+  const type = e.t === "ellipse" ? "ellipse" : e.t === "round" ? "roundRect" : "rect";
+  const o = { x:e.x, y:e.y, w:e.w, h:e.h, fill:fill, line:line };
+  if(type === "roundRect") o.rectRadius = Math.max(0.02, e.r || 0.1);
+  if(e.rot) o.rotate = e.rot;
+  s.addShape(type, o);
+}
+
+/* ---------- 主题装饰（每页少量、不抢内容） ---------- */
+function smDeco(P){
+  const a = [];
+  if(P.deco === "dot"){
+    a.push(smEll(SM_W - 3.1, -2.1, 4.6, 4.6, { fill:{ c:P.soft, a:0 } }));
+    a.push(smEll(SM_W - 1.55, 1.18, 0.16, 0.16, { fill:{ c:P.ac2, a:20 } }));
+    a.push(smEll(SM_W - 1.12, 0.86, 0.09, 0.09, { fill:{ c:P.ac, a:30 } }));
+  } else if(P.deco === "grid"){
+    a.push(smRect(SM_W - 2.35, 0, 2.35, SM_H, { fill:{ c:P.soft, a:0 } }));
+    for(let i = 1; i <= 4; i++){
+      a.push(smRect(SM_W - 2.35 + i * 0.47, 0, 0.008, SM_H, { fill:{ c:P.ac, a:82 } }));
+    }
+  } else {
+    a.push(smEll(SM_W - 3.0, -2.0, 4.8, 4.8, { line:{ c:P.ac2, w:1.6, a:84 }, fill:{ c:P.deep, a:100 } }));
+    a.push(smEll(SM_W - 2.2, -1.2, 3.0, 3.0, { line:{ c:P.ac, w:1.1, a:88 }, fill:{ c:P.deep, a:100 } }));
+    a.push(smEll(12.35, 2.2, 0.09, 0.09, { fill:{ c:P.ac2, a:10 } }));
+  }
+  return a;
+}
+
+/* ---------- 页眉 / 页脚 ---------- */
+function smHead(P, kick, title, idx, forceDark){
+  const a = [];
+  const dark = !!forceDark || !!P.dark;
+  const ink = dark ? "FFFFFF" : P.ink;
+  if(kick){
+    a.push(smRound(SM_M, 0.62, 0.10, 0.40, { r:0.05, fill:{ c:P.ac, a:0 } }));
+    a.push(smText(kick, SM_M + 0.24, 0.58, 7.6, 0.44, { fs:10, bold:true, color:P.ac, ls:16, valign:"middle" }));
+  }
+  a.push(smTitle(title, SM_M, kick ? 1.02 : 0.86, SM_W - 2 * SM_M, kick ? 0.94 : 1.1, 31, { color:ink }));
+  a.push(smRect(SM_M, 2.12, 0.78, 0.075, { fill:{ c:P.ac2, a:dark ? 0 : 0 } }));
+  a.push(smRect(SM_M + 0.92, 2.155, SM_W - 2 * SM_M - 0.92, 0.012, { fill:{ c: dark ? "FFFFFF" : P.line, a: dark ? 80 : 0 } }));
+  a.push(smText("心理老师工作台 · 一键出课件", SM_M, SM_H - 0.52, 6.4, 0.28, { fs:8.6, color: dark ? "B9C6DD" : P.ink2, valign:"middle" }));
+  a.push(smText(String(idx + 1).padStart(2, "0"), SM_W - SM_M - 0.72, SM_H - 0.52, 0.72, 0.28,
+    { fs:9.6, bold:true, color: dark ? "D8E2F2" : P.ink2, align:"right", valign:"middle" }));
+  return a;
+}
+
+/* ---------- 版式：封面 / 目标 / 暖身 / 观点 ---------- */
+function smLayout(pg, idx, st, P){
+  const T = SM_TYPES.indexOf(pg.type) >= 0 ? pg.type : "cards";
+  const fn = { cover:smLayCover, agenda:smLayAgenda, questions:smLayQuestions, statement:smLayStatement,
+    columns:smLayColumns, process:smLayProcess, timeline:smLayTimeline, quote:smLayQuote,
+    checklist:smLayChecklist, pulse:smLayPulse, stats:smLayStats, cards:smLayCards,
+    support:smLaySupport, teacher:smLayTeacher, end:smLayEnd }[T] || smLayCards;
+  const a = fn(pg, idx, st, P);
+  return a;
+}
+function smLayCover(pg, idx, st, P){
+  const a = [];
+  for(let k = 0; k < 3; k++){
+    const d = 5.4 - k * 0.7;
+    a.push(smEll(SM_W - 1.2 - d / 2, -0.9 - d / 2, d, d,
+      { line:{ c:P.ac2, w:3.0 - k * 0.8, a:64 + k * 9 }, fill:{ c:P.deep, a:100 } }));
+  }
+  a.push(smRect(0, SM_H - 1.42, SM_W, 1.42, { fill:{ c:P.ac, a:0 } }));
+  a.push(smRound(SM_M, 1.42, 2.55, 0.42, { r:0.21, line:{ c:"FFFFFF", w:0, a:0 }, fill:{ c:"FFFFFF", a:0 } }));
+  a.push(smText("心理课 · " + (pg.kick || st.grade), SM_M, 1.42, 2.55, 0.42,
+    { fs:11.5, bold:true, color:P.deep, align:"center", valign:"middle", ls:18 }));
+  a.push(smTitle(pg.title, SM_M, 2.0, SM_W - 2 * SM_M - 0.9, 1.62, 58, { color:"FFFFFF" }));
+  a.push(smBody(pg.sub || "", SM_M, 3.78, SM_W - 2 * SM_M - 1.5, 0.86, 17, { color:P.ac2 }));
+  a.push(smRect(SM_M, 4.86, 1.0, 0.075, { fill:{ c:P.ac2, a:0 } }));
+  const meta = (pg.items || []).slice(0, 3);
+  const ws = [1.55, 1.35, 1.9];
+  meta.forEach((it, i) => {
+    const m = typeof it === "string" ? it : (it.t || it.l || it.b || "");
+    const x = SM_M + (i === 0 ? 0 : i === 1 ? 1.7 : 3.2);
+    a.push(smRound(x, SM_H - 1.02, ws[i], 0.46, { r:0.23, fill:{ c:"FFFFFF", a:0 } }));
+    a.push(smText(m, x, SM_H - 1.02, ws[i], 0.46,
+      { fs:11.2, bold:true, color:P.deep, align:"center", valign:"middle" }));
+  });
+  a.push(smText("★", SM_W - 2.5, 3.1, 1.2, 0.8, { fs:38, color:P.ac2, rot:12 }));
+  return a;
+}
+function smLayAgenda(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "OBJECTIVES", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  const y0 = 2.46, y1 = 6.62, gap = 0.16;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  items.forEach((it, i) => {
+    const y = y0 + i * (h + gap), ob = typeof it === "string" ? { t:it, b:"" } : it;
+    a.push(smRound(SM_M, y, SM_W - 2 * SM_M, h, { r:0.14, fill:{ c:P.card, a:0 }, line:{ c:P.line, w:0.9, a:0 } }));
+    a.push(smRound(SM_M + 0.24, y + (h - 0.5) / 2, 0.5, 0.5, { r:0.12, fill:{ c:P.ac, a:0 } }));
+    a.push(smText(String(i + 1).padStart(2, "0"), SM_M + 0.24, y + (h - 0.5) / 2, 0.5, 0.5,
+      { fs:12, bold:true, color:"FFFFFF", align:"center", valign:"middle" }));
+    a.push(smTitle(ob.t || "", SM_M + 1.0, y + 0.10, SM_W - 2 * SM_M - 1.35, h * 0.52, 19, { color:P.ink }));
+    if(ob.b) a.push(smBody(ob.b, SM_M + 1.0, y + h * 0.56, SM_W - 2 * SM_M - 1.35, h * 0.38, 13.5, { color:P.ink2 }));
+  });
+  return a;
+}
+function smLayQuestions(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "WARM UP", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  a.push(smText("“", SM_M - 0.06, 2.18, 1.5, 1.5, { fs:110, bold:true, color:P.ac2 }));
+  const x = 2.34, w = SM_W - SM_M - x;
+  const y0 = 2.5, y1 = 6.18, gap = 0.18;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  items.forEach((t, i) => {
+    const y = y0 + i * (h + gap);
+    a.push(smRect(x, y + 0.08, w, h - 0.16, { line:{ c:P.line, w:1.0, a:0 }, fill:{ c:"FFFFFF", a:100 } }));
+    a.push(smText(String(i + 1).padStart(2, "0"), x + 0.26, y, 0.9, h, { fs:15, bold:true, color:P.ac, valign:"middle" }));
+    a.push(smBody(t, x + 1.16, y + 0.06, w - 1.45, h - 0.12, 19, { color:P.ink, valign:"middle" }));
+  });
+  if(pg.note) a.push(smBody("※ " + pg.note, SM_M, 6.42, SM_W - 2 * SM_M, 0.44, 12.5, { bold:true, color:P.ac }));
+  return a;
+}
+function smLayStatement(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "KEY IDEA", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  a.push(smText(String(idx + 1).padStart(2, "0"), SM_W - 3.3, 2.28, 3.0, 2.4,
+    { fs:150, bold:true, color:P.line, align:"right" }));
+  const y0 = 2.62;
+  items.forEach((it, i) => {
+    const y = y0 + i * 1.18;
+    const ob = typeof it === "string" ? { t:it, b:"" } : it;
+    a.push(smRect(SM_M, y + 0.2, 0.22, 0.22, { fill:{ c:i === 0 ? P.ac : P.ac2, a:0 } }));
+    a.push(smBody(ob.b ? ob.t + "　" + ob.b : (ob.t || ""), SM_M + 0.46, y, SM_W - 2 * SM_M - 2.95, 0.94, i === 0 ? 26 : 18,
+      { color:i === 0 ? P.ink : P.ink2, valign:"middle", bold:i === 0 }));
+  });
+  return a;
+}
+/* ---------- 版式：三栏 / 流程 / 时间线 ---------- */
+function smLayColumns(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "KEY POINTS", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  const gap = 0.22, w = (SM_W - 2 * SM_M - gap * 2) / 3, y = 2.52, h = 4.05;
+  items.forEach((it, i) => {
+    const x = SM_M + i * (w + gap), ob = typeof it === "string" ? { t:it, b:"" } : it;
+    a.push(smRound(x, y, w, h, { r:0.16, fill:{ c:P.card, a:0 }, line:{ c:P.line, w:1.0, a:0 } }));
+    a.push(smRect(x, y, w, 0.09, { fill:{ c:i === 0 ? P.ac : P.ac2, a:0 } }));
+    a.push(smRound(x + 0.26, y + 0.36, 0.46, 0.46, { r:0.23, fill:{ c:P.ac, a:0 } }));
+    a.push(smText(String(i + 1), x + 0.26, y + 0.36, 0.46, 0.46, { fs:13, bold:true, color:"FFFFFF", align:"center", valign:"middle" }));
+    a.push(smTitle(ob.t || "", x + 0.26, y + 0.96, w - 0.52, 0.72, 20, { color:P.ink }));
+    a.push(smBody(ob.b || "", x + 0.26, y + 1.78, w - 0.52, h - 2.0, 15, { color:P.ink2 }));
+  });
+  return a;
+}
+function smLayProcess(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "PROCESS", pg.title, idx));
+  const items = (pg.items || []).slice(0, 4);
+  const n = items.length, w = SM_W - 2 * SM_M, step = w / n;
+  const cy = 4.42;
+  a.push(smRect(SM_M + 0.3, cy - 0.03, w - 0.6, 0.06, { fill:{ c:P.line, a:0 } }));
+  items.forEach((it, i) => {
+    const cx = SM_M + step * (i + 0.5), ob = typeof it === "string" ? { t:it, b:"" } : it;
+    a.push(smEll(cx - 0.32, cy - 0.32, 0.64, 0.64, { fill:{ c:i === 0 ? P.ac : P.card, a:0 }, line:{ c:P.ac, w:2.0, a:0 } }));
+    a.push(smText(String(i + 1), cx - 0.32, cy - 0.32, 0.64, 0.64, { fs:15, bold:true, color:i === 0 ? "FFFFFF" : P.ac, align:"center", valign:"middle" }));
+    a.push(smTitle(ob.t || "", cx - step / 2 + 0.12, cy - 1.42, step - 0.24, 0.86, 18, { color:P.ink, align:"center" }));
+    a.push(smBody(ob.b || "", cx - step / 2 + 0.12, cy + 0.56, step - 0.24, 1.42, 13, { color:P.ink2, align:"center" }));
+  });
+  return a;
+}
+function smLayTimeline(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "TIMELINE", pg.title, idx));
+  const items = (pg.items || []).slice(0, 4);
+  const x = 3.38, y0 = 2.52, y1 = 6.52, gap = 0.16;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  a.push(smRect(x - 0.015, y0 + 0.2, 0.03, y1 - y0 - 0.4, { fill:{ c:P.line, a:0 } }));
+  items.forEach((it, i) => {
+    const y = y0 + i * (h + gap), ob = typeof it === "string" ? { t:it, b:"" } : it;
+    a.push(smEll(x - 0.13, y + h / 2 - 0.13, 0.26, 0.26, { fill:{ c:i === 0 ? P.ac : P.ac2, a:0 } }));
+    a.push(smText(String(i + 1).padStart(2, "0"), SM_M, y, 2.3, h, { fs:24, bold:true, color:i === 0 ? P.ac : P.ink2, valign:"middle" }));
+    a.push(smBody(ob.t || "", x + 0.42, y + 0.04, SM_W - SM_M - x - 0.42, h * 0.46, 18,
+      { color:P.ink, bold:true, valign:"middle" }));
+    if(ob.b) a.push(smBody(ob.b, x + 0.42, y + h * 0.50, SM_W - SM_M - x - 0.42, h * 0.44, 13.5, { color:P.ink2 }));
+  });
+  return a;
+}
+
+/* ---------- 版式：引用 / 清单 / 呼吸 / 数字 ---------- */
+function smLayQuote(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "CASE", pg.title, idx));
+  const items = (pg.items || []).slice(0, 4);
+  a.push(smRound(SM_M, 2.46, 5.55, 4.2, { r:0.18, fill:{ c:P.ac, a:88 }, line:{ c:P.ac, w:0, a:0 } }));
+  a.push(smText("“", SM_M + 0.3, 2.5, 1.2, 1.1, { fs:92, bold:true, color:P.ac }));
+  a.push(smTitle(pg.quote || pg.sub || pg.title, SM_M + 0.44, 3.5, 4.75, 2.06, 25, { color:P.ink }));
+  const x = 6.72, w = SM_W - SM_M - x;
+  const y0 = 2.52, y1 = 6.42, gap = 0.14;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  items.forEach((t, i) => {
+    const y = y0 + i * (h + gap);
+    a.push(smText(String(i + 1).padStart(2, "0"), x, y, 0.62, h, { fs:15, bold:true, color:P.ac, valign:"middle" }));
+    a.push(smBody(t, x + 0.62, y, w - 0.62, h, 15.5, { color:P.ink, valign:"middle" }));
+    if(i < items.length - 1) a.push(smRect(x + 0.62, y + h + gap / 2 - 0.005, w - 0.62, 0.01, { fill:{ c:P.line, a:0 } }));
+  });
+  return a;
+}
+function smLayChecklist(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "CHECKLIST", pg.title, idx));
+  const items = (pg.items || []).slice(0, 4);
+  const y0 = 2.5, y1 = 6.66, gap = 0.12;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  items.forEach((t, i) => {
+    const y = y0 + i * (h + gap);
+    a.push(smEll(SM_M, y + h / 2 - 0.19, 0.38, 0.38, { fill:{ c:P.ac, a:0 } }));
+    a.push(smText("✓", SM_M, y + h / 2 - 0.19, 0.38, 0.38, { fs:13, bold:true, color:"FFFFFF", align:"center", valign:"middle" }));
+    a.push(smBody(t, SM_M + 0.66, y, SM_W - 2 * SM_M - 0.66, h, 19, { color:P.ink, valign:"middle" }));
+    if(i < items.length - 1) a.push(smRect(SM_M + 0.66, y + h + gap / 2 - 0.005, SM_W - 2 * SM_M - 0.66, 0.01, { fill:{ c:P.line, a:0 } }));
+  });
+  return a;
+}
+function smLayPulse(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "PRACTICE", pg.title, idx));
+  const items = (pg.items || []).slice(0, 4);
+  const cx = 3.5, cy = 4.55;
+  for(let k = 3; k >= 0; k--){
+    const d = 0.9 + k * 0.62;
+    a.push(smEll(cx - d / 2, cy - d / 2, d, d, { line:{ c:P.ac, w:1.4, a:24 + k * 16 }, fill:{ c:P.ac, a:100 } }));
+  }
+  a.push(smEll(cx - 0.3, cy - 0.3, 0.6, 0.6, { fill:{ c:P.ac, a:0 } }));
+  a.push(smText("吸·呼", cx - 0.6, cy + 2.15, 1.2, 0.4, { fs:11.5, bold:true, color:P.ac, align:"center", valign:"middle" }));
+  const x = 6.62, w = SM_W - SM_M - x;
+  const y0 = 2.5, y1 = 6.5, gap = 0.14;
+  const h = (y1 - y0 - gap * (items.length - 1)) / Math.max(1, items.length);
+  items.forEach((t, i) => {
+    const y = y0 + i * (h + gap);
+    a.push(smText(String(i + 1), x, y, 0.5, h, { fs:14, bold:true, color:P.ac, valign:"middle" }));
+    a.push(smBody(t, x + 0.54, y, w - 0.54, h, 15.5, { color:P.ink, valign:"middle" }));
+  });
+  return a;
+}
+function smLayStats(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "SUMMARY", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  const gap = 0.3, w = (SM_W - 2 * SM_M - gap * 2) / 3, y = 3.0, h = 3.0;
+  items.forEach((it, i) => {
+    const x = SM_M + i * (w + gap), ob = typeof it === "string" ? { n:String(i + 1).padStart(2, "0"), l:it } : it;
+    a.push(smText(ob.n || String(i + 1), x, y, w, 1.5, { fs:66, bold:true, color:P.ac, valign:"middle" }));
+    a.push(smRect(x, y + 1.62, 0.72, 0.075, { fill:{ c:P.ac2, a:0 } }));
+    a.push(smBody(ob.l || "", x, y + 1.84, w, h - 1.9, 19, { color:P.ink, bold:true }));
+  });
+  return a;
+}
+function smLayCards(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "HOMEWORK", pg.title, idx));
+  const items = (pg.items || []).slice(0, 3);
+  const gap = 0.22, w = (SM_W - 2 * SM_M - gap * 2) / 3, y = 2.6, h = 3.7;
+  items.forEach((it, i) => {
+    const x = SM_M + i * (w + gap), ob = typeof it === "string" ? { t:"0" + (i + 1), b:it } : it;
+    a.push(smRound(x, y, w, h, { r:0.18, fill:{ c:i === 0 ? P.soft : P.card, a:0 }, line:{ c:P.line, w:0.9, a:0 } }));
+    a.push(smText(ob.t || "0" + (i + 1), x + 0.28, y + 0.3, w - 0.56, 0.9,
+      { fs:34, bold:true, color:P.ac, valign:"middle" }));
+    a.push(smBody(ob.b || "", x + 0.28, y + 1.36, w - 0.56, h - 1.66, 16, { color:P.ink }));
+  });
+  return a;
+}
+/* ---------- 版式：求助 / 讲师 / 结束 ---------- */
+function smLaySupport(pg, idx, st, P){
+  const items = (pg.items || []).slice(0, 4);
+  const a = smHead(P, pg.kick || "SUPPORT", pg.title, idx, true);
+  const gap = 0.22, w = (SM_W - 2 * SM_M - gap) / 2, h = 1.66;
+  items.forEach((t, i) => {
+    const x = SM_M + (i % 2) * (w + gap), y = 2.5 + Math.floor(i / 2) * (h + gap);
+    const s = String(t), m = s.match(/(\d{3,5})/);
+    const num = m ? m[1] : "";
+    const lab = (m ? s.replace(m[1], "") : s)
+      .replace(/[（）()]/g, " ").replace(/\s*[／\/]\s*/g, "、")
+      .replace(/：\s*、\s*/g, "：").replace(/^[：:、，,\s]+/, "")
+      .replace(/\s+/g, " ").trim();
+    a.push(smRound(x, y, w, h, { r:0.14, fill:{ c:"FFFFFF", a:90 }, line:{ c:"FFFFFF", w:1.0, a:78 } }));
+    if(num) a.push(smText(num, x + 0.28, y, 1.85, h, { fs:num.length > 3 ? 30 : 36, bold:true, color:P.ac2, valign:"middle" }));
+    else a.push(smEll(x + 0.765, y + h / 2 - 0.16, 0.32, 0.32, { fill:{ c:P.ac2, a:0 } }));
+    a.push(smBody(lab, x + 2.12, y + 0.16, w - 2.4, h - 0.32, 14, { color:"FFFFFF", valign:"middle" }));
+  });
+  if(pg.note) a.push(smBody(pg.note, SM_M, 6.34, SM_W - 2 * SM_M, 0.5, 12.5, { bold:true, color:P.ac2 }));
+  return a;
+}
+function smLayTeacher(pg, idx, st, P){
+  const a = smDeco(P).concat(smHead(P, pg.kick || "FOR TEACHER", pg.title, idx));
+  const items = (pg.items || []).slice(0, 5);
+  const max = items.reduce((m, x) => Math.max(m, +(x.m || 1)), 1);
+  const y0 = 2.5, h = 0.62, gap = 0.24;
+  items.forEach((it, i) => {
+    const y = y0 + i * (h + gap);
+    const barW = (SM_W - 2 * SM_M - 3.4) * (+(it.m || 1) / max);
+    a.push(smText(it.t || "", SM_M, y, 2.9, h, { fs:15, bold:true, color:P.ink, valign:"middle" }));
+    a.push(smRound(SM_M + 3.0, y + 0.16, Math.max(0.4, barW), h - 0.32, { r:0.08, fill:{ c:i % 2 ? P.ac2 : P.ac, a:0 } }));
+    a.push(smText((it.m || 0) + " 分钟", SM_M + 3.0 + Math.max(0.4, barW) + 0.16, y, 1.0, h,
+      { fs:12.5, bold:true, color:P.ink2, valign:"middle" }));
+  });
+  if(pg.note) a.push(smBody(pg.note, SM_M, 6.4, SM_W - 2 * SM_M, 0.44, 12, { color:P.ink2 }));
+  return a;
+}
+function smLayEnd(pg, idx, st, P){
+  const a = [];
+  for(let k = 0; k < 3; k++){
+    const d = 4.6 - k * 0.62;
+    a.push(smEll(SM_W - 1.4 - d / 2, 0.5 - d / 2 + k * 0.1, d, d, { line:{ c:P.ac2, w:2.2 - k * 0.6, a:76 + k * 8 }, fill:{ c:P.deep, a:100 } }));
+  }
+  a.push(smRect(SM_M, 2.2, 4.4, 0.09, { fill:{ c:P.ac2, a:0 } }));
+  a.push(smTitle(pg.title || "谢谢", SM_M, 2.46, SM_W - 2 * SM_M, 1.62, 72, { color:"FFFFFF" }));
+  a.push(smBody(pg.sub || "", SM_M, 4.24, SM_W - 2 * SM_M - 1.4, 0.7, 18, { color:P.ac2 }));
+  a.push(smText("心理老师工作台 · " + P.nm, SM_M, SM_H - 0.94, SM_W - 2 * SM_M, 0.34, { fs:11.5, color:"9FB0CE", valign:"middle" }));
+  return a;
+}
+
+/* ---------- 内置计划：15 页，13 种版式各司其职 ---------- */
+const SM_HOTLINE = ["学校心理老师 / 班主任（工作日都可以找）", "全国心理援助热线 12356（24 小时）", "青少年服务热线 12355", "紧急危险：110 / 120，先保证安全"];
+function smSegs(m){
+  return [["暖身导入",.12],["知识点讲解",.30],["体验活动",.28],["案例讨论",.20],["小结与延伸",.10]]
+    .map(([n,r]) => ({ t:n, m:Math.max(2, Math.round(m * r)) }));
+}
+function smBasePlan(st){
+  const c = pptTopicData(st.topic), T = PPT_THEMES[st.theme] || PPT_THEMES.warm, m = st.minutes || 40;
+  const nums = ["01","02","03"];
+  return [
+    { type:"cover", kick:st.grade, title:st.topic || "心理课", sub:c.tag, items:[m + " 分钟", "智能版式", T.nm],
+      note:"开场 1 分钟：一句话说明今天要解决的一个具体问题，不铺垫太长。\n提醒学生：本课不需要公开自己的隐私，可以只说「我观察到」。" },
+    { type:"agenda", kick:"OBJECTIVES", title:"这节课，我们想做到三件事", items:c.goals.map(g => ({ t:g, b:"" })),
+      note:"把目标读一遍即可，不用展开。\n讲完可以问一句：这三条里，你最想带走哪一条？举手看一下分布。" },
+    { type:"questions", kick:"WARM UP", title:"先热个身：三个小问题",
+      items:["最近一周，你因为「" + (st.topic || "这件事") + "」烦过吗？", "当时身体的哪个部位最有反应？", "你已经试过什么办法？管用吗？"],
+      note:"3 到 5 分钟。举手统计比逐个点名更安全。\n规则：只说自己，不评价别人；不想说可以跳过。" },
+    { type:"statement", kick:"KEY 1", title:c.points[0].t, items:c.points[0].b,
+      note:"这一页是全场的地基，慢一点，举一个班里的通用例子（不要指向具体学生）。" },
+    { type:"timeline", kick:"KEY 2", title:c.points[1].t, items:c.points[1].b.map((b,i) => ({ t:"第 " + (i + 1) + " 步", b:b })),
+      note:"重点让学生自己说出身体信号，老师只做归纳。可以请两三位同学补充。" },
+    { type:"process", kick:"KEY 3", title:c.points[2].t, items:c.points[2].b,
+      note:"三种方法里，至少带全班现场做一次呼吸，不要只讲。" },
+    { type:"cards", kick:"ACTIVITY", title:c.act.t, items:c.act.b.map((b,i) => ({ t:nums[i] || "0" + (i + 1), b:b })),
+      note:"8 到 12 分钟。提前说清规则与边界：可以只写事实，不写姓名。\n活动结束后留 1 分钟安静，让情绪落地再进下一环节。" },
+    { type:"quote", kick:"CASE", title:"案例讨论：先问「他怎么想」", quote:c.case.t, items:c.case.b,
+      note:"案例必须是虚构或高度改写的，不能指向本班学生。\n讨论时把「他会怎么想」放在「他做得对不对」之前。" },
+    { type:"checklist", kick:"SKILLS", title:"三个可以马上用的方法", items:c.skills,
+      note:"每个方法配一句「什么时候用」。\n请学生选一个，写在书页角上，作为本周的小实验。" },
+    { type:"pulse", kick:"PRACTICE", title:"一起做一次放松练习", items:c.relax,
+      note:"语速放慢到平时的一半，每句之间停 2 秒。\n不要触碰学生身体；有学生不愿闭眼，允许睁眼看向桌面。" },
+    { type:"stats", kick:"SUMMARY", title:"带走三句话", items:c.sum.map((s,i) => ({ n:nums[i] || "0" + (i + 1), l:s })),
+      note:"请三位同学各读一句，比老师自己念更有代入感。\n最后一句停两秒再翻页。" },
+    { type:"cards", kick:"HOMEWORK", title:"课后可以做的三件小事", items:c.ext.map((b,i) => ({ t:nums[i] || "0" + (i + 1), b:b })),
+      note:"强调「三选一」而不是「都要做」，降低负担。\n下周课前用 2 分钟回收，别让它变成空作业。" },
+    { type:"support", dark:true, kick:"SUPPORT", title:"需要帮助时，可以找谁", items:SM_HOTLINE,
+      note:"这一页必须讲，不能跳。\n把本校心理室的位置与开放时间写在黑板上，比念号码更有用。" },
+    { type:"teacher", kick:"FOR TEACHER", title:"时间分配建议（" + m + " 分钟）", items:smSegs(m),
+      note:"实际课堂常被突发事件打断，宁可少讲一个知识点，也要把活动和放松做完。" },
+    { type:"end", title:"谢谢", sub:"愿你和你的学生，都被好好接住。", note:"留 30 秒安静收尾，不急着下课。\n如果有人在课上被触动，课后单独找他一分钟。" }
+  ];
+}
+
+/* ---------- AI 计划：校验 / 兜底（求助页与讲师页始终保留） ---------- */
+function smPlanSig(st){ return [st.topic || "", st.grade || "", st.minutes || 40].join("|"); }
+function smHasAi(st){
+  const r = data.__pptSmart;
+  return !!(r && r.pages && r.sig === smPlanSig(st));
+}
+function smPlan(st){
+  if(smHasAi(st)) return data.__pptSmart.pages;
+  return smBasePlan(st);
+}
+function smOutline(st){
+  return smPlan(st).map(p => {
+    if(p.type === "cover") return "封面 · " + (p.title || "");
+    if(p.type === "end") return "结束页";
+    return (SM_LABEL[p.type] || "内容") + " · " + (p.title || "");
+  });
+}
+function smCut2(v, n){
+  const s = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  return s.length > n ? s.slice(0, Math.max(1, n - 1)) + "…" : s;
+}
+function smNormPage(p){
+  const type = SM_TYPES.indexOf(p && p.type) >= 0 ? p.type : "cards";
+  const out = { type:type };
+  out.kick = smCut2(p && p.kick, 18);
+  out.title = smCut2(p && p.title, 26) || SM_LABEL[type];
+  out.sub = smCut2(p && p.sub, 52);
+  out.quote = smCut2(p && p.quote, 56);
+  out.note = smCut2(p && p.note, 90);
+  out.dark = type === "support" || type === "cover" || type === "end" || !!(p && p.dark);
+  const raw = Array.isArray(p && p.items) ? p.items : [];
+  const flat = type === "questions" || type === "checklist" || type === "pulse" || type === "quote" || type === "support";
+  out.items = raw.slice(0, 5).map((it, i) => {
+    if(typeof it === "string"){
+      it = type === "cards" ? { t:"0" + (i + 1), b:it } : { t:it, b:"" };
+    }
+    const t = smCut2(it && (it.t || it.l), flat ? 34 : 16);
+    const b = smCut2(it && it.b, flat ? 34 : 34);
+    if(type === "stats") return { n:smCut2(it && it.n, 4) || "0" + (i + 1), l:smCut2(it && (it.l || it.b || it.t), 26) };
+    if(type === "teacher") return { t:smCut2(it && (it.t || it.b), 10), m:Math.max(1, Math.min(99, +(it && it.m) || 5)) };
+    if(type === "quote") return smCut2(it && (it.b || it.t), 34);
+    if(flat) return smCut2(it && (it.t || it.b), 34);
+    return { t:t || ("0" + (i + 1)), b:b };
+  }).filter(x => (typeof x === "string" ? x : (x.t || x.l || x.n)));
+  if(!out.items.length){
+    out.items = type === "support" ? SM_HOTLINE.slice(0) : type === "teacher" ? smSegs(40) : ["要点一", "要点二", "要点三"];
+  }
+  return out;
+}
+function smNorm(o, st){
+  const arr = Array.isArray(o) ? o : (o && Array.isArray(o.pages) ? o.pages : null);
+  if(!arr) throw new Error("AI 返回的不是页面数组，再试一次");
+  let pages = arr.slice(0, 16).map(smNormPage);
+  if(pages.length < 10) throw new Error("AI 只排了 " + pages.length + " 页，少于 10 页，再试一次");
+  if(pages[0].type !== "cover"){
+    const base = smBasePlan(st)[0];
+    pages.unshift(base);
+  }
+  if(pages[pages.length - 1].type !== "end"){
+    const base = smBasePlan(st);
+    pages.push(base[base.length - 1]);
+  }
+  const sup = pages.findIndex(p => p.type === "support");
+  if(sup < 0){
+    const base = smBasePlan(st), bp = base.find(p => p.type === "support");
+    const at = Math.max(1, pages.length - 2);
+    pages.splice(at, 0, bp);
+  } else {
+    pages[sup].items = SM_HOTLINE.slice(0);
+    pages[sup].dark = true;
+  }
+  if(!pages.some(p => p.type === "teacher")){
+    const base = smBasePlan(st), bp = base.find(p => p.type === "teacher");
+    pages.splice(Math.max(1, pages.length - 1), 0, bp);
+  }
+  return pages;
+}
+
+/* ---------- AI 编排：提示词 / 调用 / 写入 ---------- */
+function smPrompt(st){
+  const c = pptTopicData(st.topic);
+  const req = (st.req || "").trim();
+  const brief = {
+    topic:st.topic, grade:st.grade, minutes:st.minutes,
+    tag:c.tag, goals:c.goals,
+    points:c.points, act:c.act, case:c.case,
+    skills:c.skills, relax:c.relax, ext:c.ext, sum:c.sum
+  };
+  return [
+    "你是一名擅长信息设计的中学心理课件设计师。请把下面这节课，编排成一套 13–16 页、视觉语言统一的课件版式方案（不是写新文案，是把已有内容放进最合适的版式）。",
+    "只输出一个 JSON 对象，不要解释、不要 Markdown 代码块：",
+    '{"pages":[{"type":"版式","kick":"英文小标≤14字符","title":"本页标题≤16字","sub":"副标题≤30字","quote":"仅 quote 页的大引文≤28字","items":["..."],"note":"讲师备注≤50字"}]}',
+    "可用版式（type 只能取以下值）：",
+    "cover 封面（title=课程名，items=三个胶囊：时长/页数/配色）；",
+    "agenda 目标清单（3 条 {t,b}）；questions 暖身提问（3 条短问句）；",
+    "statement 单点观点（1 条主句 + 2 条支撑，items 按重要性排序）；",
+    "columns 三栏并列（正好 3 组 {t,b}，适合三个并列要点）；",
+    "process 横向流程（3–4 步，适合操作步骤）；timeline 纵向时间线（3–4 组 {t,b}，适合发展阶段）；",
+    "quote 案例讨论（quote=一句关键提问，items=4 条讨论问题）；",
+    "checklist 方法清单（3–4 条可执行方法）；pulse 呼吸/放松（4 条引导语，页面自动画同心圆）；",
+    "stats 数字小结（3 组 {n:两位数字, l:一句结论}）；cards 三张卡片（3 组 {t:两位编号, b:一句说明}）；",
+    "support 求助页（固定 4 条：12356 / 12355 / 110 / 120，不要改写号码）；",
+    "teacher 讲师页（{t:环节名≤6字, m:分钟数}）；end 结束页。",
+    "硬性要求：第一页必须是 cover，最后一页必须是 end；必须包含 1 页 support 与 1 页 teacher；",
+    "正文每条 ≤ 30 字、标题 ≤ 16 字、讲师备注 ≤ 50 字；同一版式最多连用 2 次，整份至少用到 8 种版式；",
+    "面向 " + st.grade + " 学生，语气温和具体，不出现真实姓名；涉及自伤或危机时提示向心理老师与热线求助。",
+    req ? ("用户额外要求（优先满足）：" + req) : "用户没有额外要求，按主题气质自选版式顺序。",
+    "本节可用内容（JSON，请直接取用，不要编造无关内容）：",
+    JSON.stringify(brief)
+  ].join("\n");
+}
+async function smAiJson(prompt){
+  const url = llmUrl();
+  const head = { "Content-Type":"application/json", "Authorization":"Bearer " + PPT_LLM.key };
+  const mk = extra => Object.assign({
+    model:PPT_LLM.model || "deepseek-chat",
+    messages:[
+      { role:"system", content:"你是中学心理课件设计师，只输出严格合法的 JSON，不要代码块，不要多余文字。" },
+      { role:"user", content:prompt }
+    ],
+    temperature:0.55
+  }, extra);
+  let body = mk({ response_format:{ type:"json_object" } });
+  let r = await aiFetch(url, { method:"POST", headers:head, body:JSON.stringify(body) }, 150000);
+  let text = ""; try{ text = await r.text(); }catch(e){}
+  if(!r.ok && body.response_format && /response_format|unsupported|unknown|invalid|unrecognized|extra|not support/i.test(text)){
+    body = mk({});
+    r = await aiFetch(url, { method:"POST", headers:head, body:JSON.stringify(body) }, 150000);
+    text = ""; try{ text = await r.text(); }catch(e){}
+  }
+  if(r.status === 404 || r.status === 405){
+    const alt = llmAltUrl(url);
+    if(alt){
+      r = await aiFetch(alt, { method:"POST", headers:head, body:JSON.stringify(body) }, 150000);
+      text = ""; try{ text = await r.text(); }catch(e){}
+    }
+  }
+  if(!r.ok) throw new Error(aiHttpMsg(r.status, text, url));
+  let j; try{ j = JSON.parse(text); }catch(e){ throw new Error("接口返回的不是 JSON（可能地址填错，或额度 / 权限不足）"); }
+  if(j.error) throw new Error("接口返回错误：" + (j.error.message || j.error.code || j.error));
+  const m = j.choices && j.choices[0] && j.choices[0].message;
+  if(!m) return "";
+  return typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map(p => (p && p.text) || "").join("") : "";
+}
+async function smAiWrite(st){
+  if(!llmReady()){ llmPaint("先把接口地址、模型、API Key 三项填好，再点「AI 编排版式」。", "err"); return; }
+  if(llmModelIsImage()){ llmPaint("「" + PPT_LLM.model + "」是生图模型名；版式编排要用对话模型（如 deepseek-chat）。", "err"); return; }
+  if(PPT_LLM.busy) return;
+  PPT_LLM.busy = true;
+  if($("#llm-plan")) $("#llm-plan").disabled = true;
+  const topic = (st && st.topic) || "心理课";
+  llmPaint("正在按「" + topic + "」编排版式，通常 20–60 秒…");
+  try{
+    const pages = smNorm(llmParse(await smAiJson(smPrompt(st))), st);
+    data.__pptSmart = { sig:smPlanSig(st), req:(st.req || ""), at:Date.now(), pages:pages };
+    store.save();
+    if(PPT_LLM.sync) PPT_LLM.sync();
+    llmPaint("AI 已排好 " + pages.length + " 页，视觉预览与 PPTX 同步更新。", "ok",
+      ' · <span class="up" data-llm="planreset">恢复内置版式</span>');
+  }catch(err){
+    llmPaint("版式编排失败：" + llmErr(err), "err");
+  }finally{
+    PPT_LLM.busy = false;
+    if($("#llm-plan")) $("#llm-plan").disabled = false;
+  }
+}
+function smPlanState(st){
+  if(smHasAi(st)){
+    const t = data.__pptSmart.at ? new Date(data.__pptSmart.at).toLocaleString("zh-CN", { month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "";
+    return "AI 编排 · " + smPlan(st).length + " 页" + (t ? " · " + t : "");
+  }
+  return "内置版式 · " + smPlan(st).length + " 页";
+}
+function smPageNote(pg, i){
+  if(pg.note) return pg.note;
+  return "第 " + (i + 1) + " 页（" + (SM_LABEL[pg.type] || "内容") + "）：控制节奏，留出提问与回应的时间。";
+}
+
+/* ---------- 生成 pptx：与预览同一套元素坐标 ---------- */
+function ppBuildSmart(st){
+  const P = smPal(st), pages = smPlan(st), F = "微软雅黑";
+  const pptx = new PptxGenJS();
+  pptx.layout = "LAYOUT_WIDE";
+  pptx.title = st.topic + " · " + st.grade;
+  pptx.author = "心理老师工作台";
+  pages.forEach((pg, i) => {
+    const s = pptx.addSlide();
+    s.background = { color:smIsDark(pg, P) ? P.deep : P.bg };
+    smLayout(pg, i, st, P).forEach(el => smDraw(s, el, F));
+    if(st.notes) s.addNotes(smPageNote(pg, i));
+  });
+  return pptx;
+}
+
+
 function pptBase(name){
   if(PPT_TOPICS[name]) return PPT_TOPICS[name];
   const n = name || "心理课";
@@ -1799,15 +2471,17 @@ function pptTopicData(name){
 
 function pptState(){
   if(!data.__ppt || typeof data.__ppt!=="object"){
-    data.__ppt = { topic:"情绪管理", grade:"初二", minutes:40, theme:"warm", style:"book", notes:true, toPlan:true };
+    data.__ppt = { topic:"情绪管理", grade:"初二", minutes:40, theme:"warm", style:"smart", notes:true, toPlan:true, req:"" };
   }
-  if(!data.__ppt.style) data.__ppt.style = "book";
+  if(!data.__ppt.style) data.__ppt.style = "smart";
+  if(typeof data.__ppt.req !== "string") data.__ppt.req = "";
   if(!data.__ppt.art) data.__ppt.art = "builtin";
   return data.__ppt;
 }
 
 /* 15 页结构与标题（随主题变化） */
 function pptOutline(st){
+  if((st.style||"smart")==="smart") return smOutline(st);
   const c = pptTopicData(st.topic);
   return [
     "封面 · " + st.topic,
@@ -1838,6 +2512,7 @@ function pptOutlineHTML(html){
    只读取同一份 PPT_TOPICS 文案，不参与 pptx 生成。
    ============================================================ */
 function pptSlideSpecs(st){
+  if((st.style||"smart")==="smart") return smPlan(st);
   const c = pptTopicData(st.topic);
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const seg = [["暖身导入",.12],["知识点讲解",.30],["体验活动",.28],["案例讨论",.20],["小结与延伸",.10]]
@@ -1871,6 +2546,7 @@ function pptSlideSpecs(st){
 }
 
 function pvSlideHTML(spec, st, idx){
+  if((st.style||"book")==="smart") return smSlideHTML(spec, idx, st);
   if((st.style||"book")==="book") return pvBookHTML(spec, st, idx);
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const W=13.333, H=7.5, M=0.78;
@@ -2003,6 +2679,7 @@ function pvClose(){
 }
 
 function ppBuildDeck(st){
+  if((st.style||"book")==="smart") return ppBuildSmart(st);
   if((st.style||"book")==="book") return ppBuildBook(st);
   const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
   const c = pptTopicData(st.topic);
@@ -2827,9 +3504,13 @@ function renderPpt(){
           <div class="field"><label>学段</label><div class="seg seg-6" id="ppt-grade">${segHTML(grades, st.grade)}</div></div>
           <div class="frow">
             <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div></div>
-            <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${st.style!=="poster"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
+            <div class="field"><label>版式</label><div class="seg seg-3" id="ppt-style"><div class="opt ${(st.style||"smart")==="smart"?"on":""}" data-v="smart">智能版式</div><div class="opt ${st.style==="book"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
           </div>
           <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
+          <div class="field"><label>生成要求（可选） <span class="en">BRIEF</span></label>
+            <textarea id="ppt-req" rows="2" style="min-height:62px" placeholder="例如：初三、节奏紧、多用数据和流程；少用大段文字；结尾落到行动">${esc(st.req||"")}</textarea>
+            <div class="ppt-ainote">填好后点「AI 编排版式」，模型会按要求重排页面顺序与版式；不填则用内置版式。</div>
+          </div>
           <div class="field"><label>插画 <span class="en">ART</span></label>
             <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
             <div class="ppt-ainote" id="ppt-ainote">${aiNoteHTML(st)}</div>
@@ -2845,7 +3526,7 @@ function renderPpt(){
         </div>
         <div class="ppt-card" id="ppt-llm-card">
           <h3>${icon("sun",17)} API 配置 <span class="en">LESSON AI</span></h3>
-          <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / DeepSeek / 硅基流动 / 火山方舟豆包），用来写这一课的 15 页文案。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
+          <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / DeepSeek / 硅基流动 / 火山方舟豆包），用来写这一课文案、编排版式。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
           <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">
             <button class="btn ghost" data-llmpre="deepseek" style="height:30px;padding:0 12px;font-size:12px">DeepSeek 官方</button>
             <button class="btn ghost" data-llmpre="silicon" style="height:30px;padding:0 12px;font-size:12px">硅基流动</button>
@@ -2860,7 +3541,7 @@ function renderPpt(){
           <div class="ppt-actions">
             <button class="btn ghost" id="llm-save">保存</button>
             <button class="btn ghost" id="llm-test">测试连接</button>
-            <button class="btn" id="llm-write">AI 写这一课</button>
+            <button class="btn" id="llm-write">AI 写这一课</button><button class="btn ghost" id="llm-plan">AI 编排版式</button>
           </div>
           <div class="ppt-note">Key 只存在你本机浏览器的存储里，不会上传到任何服务器。公共电脑上用完建议 <span class="up" data-llm="wipe">清空 Key</span>。<br/>不配置时仍用内置文案；AI 写好后可随时「恢复内置」。</div>
         </div>
@@ -2869,7 +3550,7 @@ function renderPpt(){
         <div class="ppt-card">
           <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
           <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
-          <div class="ppt-note" id="ppt-meta">15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+          <div class="ppt-note" id="ppt-meta">${smPlan(st).length} 页 · 16:9 · ${st.style==="smart"?"智能版式":st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
         </div>
         <div class="ppt-card" id="pv-card">
           <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
@@ -2880,9 +3561,10 @@ function renderPpt(){
     </div>`;
 
   const sync = () => {
+    if($("#llm-plan")) $("#llm-plan").textContent = smHasAi(st) ? "重新编排版式" : "AI 编排版式";
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
-    $("#ppt-meta").textContent = `15 页 · 16:9 · ${st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
+    $("#ppt-meta").textContent = `${smPlan(st).length} 页 · 16:9 · ${st.style==="smart"?"智能版式":st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
     if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     if($("#llm-state")) llmPaint();
@@ -2929,6 +3611,8 @@ function renderPpt(){
     if(t.dataset.ai==="gen") aiGenerate(st);
     if(t.dataset.ai==="clear") aiClear(st);
   });
+  if($("#ppt-req")) $("#ppt-req").addEventListener("input", e => { st.req = e.target.value; store.save(); });
+  if($("#llm-plan")) $("#llm-plan").onclick = async () => { llmRead(); await smAiWrite(st); };
   $("#ppt-gen").onclick = () => pptGenerate();
   PPT_LLM.sync = sync;
   const llmFill = () => {
@@ -2964,6 +3648,9 @@ function renderPpt(){
       try{ localStorage.setItem(LLM_BANK_KEY, JSON.stringify(b)); }catch(err){}
       sync(); llmPaint("已恢复内置文案。", "ok");
     }
+    if(t.dataset.llm === "planreset"){
+      delete data.__pptSmart; store.save(); sync(); llmPaint("已恢复内置版式。", "ok");
+    }
     if(t.dataset.llm === "wipe"){
       PPT_LLM.key = ""; llmSaveCfg();
       if($("#llm-key")) $("#llm-key").value = "";
@@ -2998,7 +3685,7 @@ function pptAddPlan(st){
   data.plan = data.plan || [];
   const title = `${st.grade} · ${st.topic}（一键生成）`;
   if(data.plan.some(x=>x.title===title)) return false;
-  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / 15 页 / ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm}配色 / PPTX 已生成`, mood:"待上", date:isoToday() });
+  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / ${smPlan(st).length} 页 / ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm}配色 / PPTX 已生成`, mood:"待上", date:isoToday() });
   store.save();
   return true;
 }
