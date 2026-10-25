@@ -400,6 +400,18 @@
   .ppt-card { background:var(--surface-card); border:1px solid var(--border); border-radius:var(--radius-tile); box-shadow:var(--shadow-card); padding:18px 18px 16px; }
   .ppt-card > h3 { font-size:15px; font-weight:800; letter-spacing:-.01em; margin-bottom:14px; display:flex; align-items:center; gap:9px; }
   .ppt-card > h3 .en { font-size:10px; letter-spacing:.14em; color:var(--text-tertiary); font-weight:700; }
+  /* 可折叠卡：点标题收起 / 展开（API 配置用） */
+  .ppt-card > h3.ppt-fold { cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .ppt-card > h3.ppt-fold:hover { color:var(--accent); }
+  .ppt-card > h3.ppt-fold:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+  .ppt-fold-meta { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .ppt-fold-tag { font-size:10px; font-weight:700; letter-spacing:.06em; color:var(--text-tertiary);
+    background:var(--surface-nested); border:1px solid var(--border); border-radius:999px; padding:1px 8px; }
+  .ppt-fold-tag.ok { color:var(--accent); border-color:var(--accent); background:var(--accent-muted); }
+  .ppt-fold-ar { font-size:11px; line-height:1; color:var(--text-tertiary); transition:transform .18s ease; }
+  .ppt-card.fold > h3.ppt-fold { margin-bottom:0; }
+  .ppt-card.fold > h3.ppt-fold .ppt-fold-ar { transform:rotate(-90deg); }
+  .ppt-card.fold > :not(h3) { display:none !important; }
   .ppt-chips { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin:9px 0 0; }
   .ppt-chip { padding:7px 6px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-radius:999px; border:1px solid var(--border-input); background:var(--surface-card);
     color:var(--text-secondary); font-size:12.5px; cursor:pointer; transition:all .12s; }
@@ -1727,7 +1739,11 @@ const PPT_TOPICS = {
    ============================================================ */
 const LLM_CFG_KEY = "psy-ppt-llm-v1";
 const LLM_BANK_KEY = "psy-ppt-lesson-v1";
+const LLM_FOLD_KEY = "psy-ppt-llm-fold";
 const LLM_MAX_TOPICS = 8;
+/* API 配置卡默认收起，上次的开合状态记在本机 */
+let PPT_LLM_FOLD = true;
+try{ if(localStorage.getItem(LLM_FOLD_KEY) === "0") PPT_LLM_FOLD = false; }catch(e){}
 const PPT_LLM = { base:"", model:"", vmodel:"", key:"", busy:false, bank:null, sync:null };
 function llmLoadCfg(){
   try{
@@ -1908,8 +1924,21 @@ function llmStatusHTML(){
   if(!llmReady()) return "未配置接口，当前用内置文案。填好上面三项后点「AI 写这一课」。";
   return "当前用内置文案 · 点「AI 写这一课」让模型重写 15 页内容（约 20–60 秒）";
 }
+/* 把一个卡的展开 / 收起状态刷到 DOM；折叠只切 CSS，不动表单里的输入值 */
+function llmFoldPaint(){
+  const card = $("#ppt-llm-card"); if(!card) return;
+  card.classList.toggle("fold", PPT_LLM_FOLD);
+  const h = card.querySelector("h3.ppt-fold");
+  if(h) h.setAttribute("aria-expanded", PPT_LLM_FOLD ? "false" : "true");
+  const tag = card.querySelector(".ppt-fold-tag");
+  if(tag){
+    tag.textContent = PPT_LLM.key ? "已配置" : "未配置";
+    tag.classList.toggle("ok", !!PPT_LLM.key);
+  }
+}
 function llmPaint(msg, cls, extra){
   const el = $("#llm-state"); if(!el) return;
+  llmFoldPaint();
   if(!msg){ el.innerHTML = llmStatusHTML(); return; }
   const c = cls === "err" ? "var(--danger)" : cls === "ok" ? "var(--module-1)" : "var(--text-secondary)";
   el.innerHTML = '<span style="color:' + c + ';font-weight:700">' + esc(msg) + '</span>' + (extra || "");
@@ -6275,7 +6304,6 @@ function renderPpt(){
             <div class="ppt-ainote" id="ppt-libnote">${smLibStats()}</div>
             <label class="ppt-toggle" style="margin-top:6px"><input type="checkbox" id="ppt-imgs" ${st.imgs!==false?"checked":""}/> 自动配图（素材库优先，其次内置手绘 / AI 插画）</label>
           </div>
-          </div>
           <div class="field"><label>插画 <span class="en">ART</span></label>
             <div class="seg" id="ppt-art"><div class="opt ${st.art!=="ai"?"on":""}" data-v="builtin">内置手绘</div><div class="opt ${st.art==="ai"?"on":""}" data-v="ai">AI 生成</div></div>
             <div class="ppt-ainote" id="ppt-ainote">${aiNoteHTML(st)}</div>
@@ -6293,8 +6321,11 @@ function renderPpt(){
           <div id="ppt-stage2">${mxStageBarHTML()}</div>
           <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
         </div>
-        <div class="ppt-card" id="ppt-llm-card">
-          <h3>${icon("sun",17)} API 配置 <span class="en">LESSON AI</span></h3>
+        <div class="ppt-card${PPT_LLM_FOLD ? " fold" : ""}" id="ppt-llm-card">
+          <h3 class="ppt-fold" role="button" tabindex="0" aria-expanded="${PPT_LLM_FOLD ? "false" : "true"}" title="点击展开 / 收起">
+            ${icon("sun",17)} API 配置 <span class="en">LESSON AI</span>
+            <span class="ppt-fold-meta"><span class="ppt-fold-tag${PPT_LLM.key ? " ok" : ""}">${PPT_LLM.key ? "已配置" : "未配置"}</span><span class="ppt-fold-ar">▾</span></span>
+          </h3>
           <div class="ppt-note" style="margin:-6px 0 10px">兼容 OpenAI 协议的任意服务（官方 / 中转 / DeepSeek / 硅基流动 / 火山方舟豆包），用来写这一课文案、编排版式。<br/>地址必须允许浏览器跨域（CORS）；中转站大多默认关闭。</div>
           <div class="ppt-pre-row" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px">
             <button class="btn ghost" data-llmpre="deepseek" style="height:30px;padding:0 12px;font-size:12px">DeepSeek 官方</button>
@@ -6325,12 +6356,12 @@ function renderPpt(){
             <button class="btn ghost" id="ppt-export-outline" style="height:30px;padding:0 12px;font-size:12px">导出大纲</button>
           </div>
           <div class="ppt-note" id="ppt-meta">${pptMetaText(st)}</div>
+        </div>
         <div class="ppt-card">
           <h3>质量检查 <span class="en">QA</span></h3>
           <div class="ppt-ainote" id="ppt-qa-sub">检查 ${smPlan(st).length} 页 · 生成后还会检查文件本身</div>
           <div id="ppt-qa">${mxQaHTML(mxQaPages(st, smPlan(st)))}</div>
           <div class="ppt-actions" style="margin-top:8px"><button class="btn ghost" id="ppt-qa-fix" style="height:30px;padding:0 12px;font-size:12px">一键修复可自动处理项</button></div>
-        </div>
         </div>
         <div class="ppt-card" id="pv-card">
           <h3>${icon("eye",17)} 视觉预览 <span class="en">VISUAL</span></h3>
@@ -6522,6 +6553,19 @@ function renderPpt(){
   };
   llmFill();
   llmPaint();
+  const llmFoldHead = $("#ppt-llm-card") ? $("#ppt-llm-card").querySelector("h3.ppt-fold") : null;
+  if(llmFoldHead){
+    const toggleLlmFold = () => {
+      PPT_LLM_FOLD = !PPT_LLM_FOLD;
+      try{ localStorage.setItem(LLM_FOLD_KEY, PPT_LLM_FOLD ? "1" : "0"); }catch(e){}
+      llmFoldPaint();
+    };
+    llmFoldHead.addEventListener("click", toggleLlmFold);
+    llmFoldHead.addEventListener("keydown", e => {
+      if(e.key === "Enter" || e.key === " "){ e.preventDefault(); toggleLlmFold(); }
+    });
+  }
+  llmFoldPaint();
   $("#llm-save").onclick = () => { llmRead(); llmPaint("已保存（只存本机浏览器）。", "ok"); };
   $("#llm-test").onclick = async () => { llmRead(); await llmTest(); };
   $("#llm-write").onclick = async () => { llmRead(); await llmWrite(st); };
