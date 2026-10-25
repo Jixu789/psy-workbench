@@ -411,6 +411,21 @@
   .ppt-sw .nm { font-size:12.5px; font-weight:700; line-height:1.3; }
   .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:3px; line-height:1.45; }
   .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
+  .ppt-swatch.dim .ppt-sw { opacity:.45; }
+  .ppt-swatch.dim .ppt-sw:hover { opacity:.8; }
+  /* 模板选择：一条自动匹配 + 3 列模板卡 */
+  .ppt-tplauto { border:1.5px solid var(--border-input); border-radius:12px; padding:9px 11px 10px; cursor:pointer; transition:all .12s; background:var(--surface-nested); }
+  .ppt-tplauto .row { display:flex; align-items:center; gap:8px; }
+  .ppt-tplauto .nm { font-size:12.5px; font-weight:700; }
+  .ppt-tplauto .tag { font-size:10px; padding:1px 6px; border-radius:999px; background:var(--accent-muted); color:var(--accent-strong, var(--accent)); font-weight:700; }
+  .ppt-tplauto .dsc { font-size:11px; color:var(--text-secondary); margin-top:5px; line-height:1.5; }
+  .ppt-tplauto.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); background:#fff; }
+  .ppt-tpls { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:9px; }
+  .ppt-tpl { display:flex; flex-direction:column; border:1.5px solid var(--border-input); border-radius:11px; padding:7px 8px 8px; cursor:pointer; transition:all .12s; text-align:left; min-width:0; }
+  .ppt-tpl .bar { height:17px; border-radius:6px; margin-bottom:6px; border:1px solid rgba(0,0,0,.06); flex:0 0 auto; }
+  .ppt-tpl .nm { font-size:11.5px; font-weight:700; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ppt-tpl .dsc { font-size:10px; color:var(--text-tertiary); margin-top:2px; line-height:1.4; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ppt-tpl.on { border-color:var(--accent); box-shadow:0 0 0 2.5px var(--accent-muted); }
   .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
   .ppt-ainote { font-size:12px; color:var(--text-secondary); margin-top:10px; line-height:1.6; }
   .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
@@ -469,9 +484,10 @@
   .pv-cell .no { position:absolute; right:5px; top:5px; z-index:2; background:rgba(0,0,0,.42); color:#fff;
     font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:5px; letter-spacing:.04em; }
   .pv-slide { position:relative; width:100%; aspect-ratio:16/9; container-type:inline-size; overflow:hidden;
-    font-family:"Microsoft YaHei","微软雅黑",system-ui,sans-serif; }
+    font-family:var(--pvfb, "Microsoft YaHei"), "微软雅黑", system-ui, sans-serif; }
   .pv-slide .pv-en { position:absolute; font-weight:600; letter-spacing:.2em; white-space:nowrap; }
-  .pv-slide .pv-title { position:absolute; font-weight:800; display:flex; align-items:center; }
+  .pv-slide .pv-title { position:absolute; font-weight:800; display:flex; align-items:center;
+    font-family:var(--pvft, "Microsoft YaHei"), "微软雅黑", system-ui, sans-serif; }
   .pv-slide .pv-txt { position:absolute; }
   .pv-slide .pv-foot, .pv-slide .pv-num { position:absolute; }
   .pv-slide .pv-num { text-align:right; }
@@ -1325,6 +1341,173 @@ const PPT_THEMES = {
   night: { nm:"星空夜话", bg:"151931", deep:"0A0C1B", card:"232A4A", ink:"F1F4FF", ink2:"A6B2D3", accent:"7A5CFF", accent2:"35E0D2", soft:"232A4A", line:"2F3758", on:"FFFFFF" },
 };
 
+/* ---------- 模板库：把上传的 11 个 pptx 的「设计 DNA」内嵌成可复用风格 ----------
+   原始文件合计约 207MB，塞不进单文件网页；这里提取的是配色 / 字体 / 装饰母题 / 版式语气，
+   由 PptxGenJS 按同一套英寸坐标重绘，避免体积与图片版权问题。
+   hero = 模板签名色（只用于界面色条）；accent = 加深到 ≥4.5:1 对比度的可读版本。      */
+const PPT_TEMPLATES = [
+  { id:"t3", nm:"草绿兔子", scene:"小学低段 · 可爱插画", src:"3.pptx · 汉仪字研欢乐宋W",
+    ft:"华文琥珀", fb:"幼圆", deco:"blob", hero:"7CA56C",
+    pal:{ bg:"F6FBF3", deep:"22331F", card:"FFFFFF", ink:"233A26", ink2:"6E806B",
+          accent:"4E7C42", accent2:"F6979C", soft:"FCD7D8", line:"DCEBD5" },
+    kw:["小学","低年级","一年级","二年级","三年级","友谊","习惯","绘本","可爱","害怕","生气","分享"],
+    stage:["小学"], style:["book","smart"], theme:["warm","mint"],
+    hint:"卡通插画感：标题用胖圆字体，句子短，多用柔和色块与圆角卡片，不用密集小字" },
+
+  { id:"t4", nm:"清爽蓝白", scene:"通用 · 干净规整", src:"4.pptx · 字魂27号-布丁体",
+    ft:"幼圆", fb:"微软雅黑", deco:"wave", hero:"2E75B6",
+    pal:{ bg:"F6FDFF", deep:"123A5E", card:"FFFFFF", ink:"1B3A5C", ink2:"5C7A96",
+          accent:"2E75B6", accent2:"9DC3E6", soft:"D9ECFB", line:"CFE5F7" },
+    kw:["规则","班规","目标","计划","学习","方法","时间","专注","复习","考试","自律","习惯"],
+    stage:["初中","高中"], style:["smart"], theme:[], prio:1,
+    hint:"干净规整：标题简洁、正文分点、大量留白，蓝白配色，适合讲规则与方法" },
+
+  { id:"t5", nm:"静谧蓝紫", scene:"中学 · 稳重学术", src:"5.pptx · 汉仪字研欢乐宋简",
+    ft:"华文中宋", fb:"微软雅黑", deco:"grid", hero:"4D80B9",
+    pal:{ bg:"F7FAFE", deep:"1B2E4A", card:"FFFFFF", ink:"1F3350", ink2:"6A7E96",
+          accent:"3F6DA3", accent2:"7C8DD4", soft:"E4EBF7", line:"D8E2F0" },
+    kw:["压力","焦虑","升学","自我","认识","生涯","职业","规划","调节","统计","数据","研究"],
+    stage:["初中","高中"], style:["smart"], theme:["night"],
+    hint:"稳重学术：小标+主标的双层标题，正文条目化，蓝紫配色，适合讲概念与数据" },
+
+  { id:"t6", nm:"天蓝气泡", scene:"初中 · 轻快互动", src:"6.pptx · 汉仪糯米团简",
+    ft:"幼圆", fb:"等线", deco:"wave", hero:"44CEF6",
+    pal:{ bg:"F4FCFF", deep:"08303D", card:"FFFFFF", ink:"0E3B4B", ink2:"5E8494",
+          accent:"0A7FA8", accent2:"76D8F8", soft:"D6F4FE", line:"C8ECF9" },
+    kw:["沟通","同伴","交友","合作","冲突","表达","倾听","班级","团队","破冰","互动"],
+    stage:["初中"], style:["smart"], theme:["mint"],
+    hint:"轻快气泡：圆角卡片与气泡式排版，语气轻松，适合同伴互动与沟通类内容" },
+
+  { id:"t7", nm:"手账笔迹", scene:"通用 · 手写随笔", src:"7.pptx · Senty小丸子",
+    ft:"华文行楷", fb:"楷体", deco:"plain", hero:"5B5B54",
+    pal:{ bg:"FDFCF8", deep:"2A2A26", card:"FFFFFF", ink:"33332C", ink2:"7A7A70",
+          accent:"3A3A34", accent2:"E9A63C", soft:"F0EAD8", line:"E2DCCB" },
+    kw:["日记","记录","反思","成长","复盘","觉察","心情","手账","随笔","回顾"],
+    stage:["小学","初中","高中"], style:["book"], theme:["warm"], prio:0.6,
+    hint:"手账随笔：像师生手写笔记，短句、批注感、留白多，避免密集图表与表格" },
+
+  { id:"t8", nm:"明黄活力", scene:"通用 · 高能激励", src:"8.pptx · 胡晓波骚包体",
+    ft:"华文琥珀", fb:"微软雅黑", deco:"dot", hero:"F4CD3D",
+    pal:{ bg:"FFFBF0", deep:"2B2410", card:"FFFFFF", ink:"332C14", ink2:"7E7350",
+          accent:"9A6E00", accent2:"009DD9", soft:"FEF0C9", line:"F5E7BE" },
+    kw:["动力","激励","目标","坚持","韧性","抗挫","积极","优势","自信","打卡","行动"],
+    stage:["初中","高中"], style:["smart"], theme:["warm"],
+    hint:"明黄高能：大字标题、强对比色块、口号式短句，适合激励与行动清单" },
+
+  { id:"t9", nm:"玫红杂志", scene:"中学 · 编辑排版", src:"9.pptx · 851tegakizatsu",
+    ft:"黑体", fb:"等线", deco:"plain", hero:"EE2B47",
+    pal:{ bg:"FFF7FB", deep:"2A1017", card:"FFFFFF", ink:"33151E", ink2:"8A6A73",
+          accent:"C4152F", accent2:"FFB3C8", soft:"FFE3EE", line:"F7D3E0" },
+    kw:["危机","自杀","自伤","欺凌","霸凌","干预","求助","生命","安全","抑郁","预警","严肃"],
+    stage:["初中","高中"], style:["smart"], theme:["night"],
+    hint:"杂志编辑感：小字号密排、细线分隔、玫红点睛，语气克制，适合严肃议题与危机教育" },
+
+  { id:"t10", nm:"暖粉影像", scene:"通用 · 图片叙事", src:"10.pptx · 微软雅黑",
+    ft:"楷体", fb:"微软雅黑", deco:"plain", hero:"FFB6B9", photo:true,
+    pal:{ bg:"FFFAF8", deep:"241C1A", card:"FFFFFF", ink:"2A211F", ink2:"7D6A64",
+          accent:"9E5B61", accent2:"FFD9DA", soft:"FDECEC", line:"F0DCD8" },
+    kw:["家庭","亲子","感恩","陪伴","关系","亲情","回忆","故事","影像","思念"],
+    stage:["小学","初中"], style:["smart","book"], theme:["warm"],
+    hint:"影像叙事：图片占主导、文字少而重，粉调柔和，适合家庭与情感主题" },
+
+  { id:"t11", nm:"森系彩绘", scene:"初中 · 多彩治愈", src:"11.pptx · 方正卡通简体",
+    ft:"华文新魏", fb:"微软雅黑", deco:"blob", hero:"69A49A",
+    pal:{ bg:"F7FBF9", deep:"1E3A34", card:"FFFFFF", ink:"23403A", ink2:"6C847E",
+          accent:"3D6C62", accent2:"AFD5E8", soft:"EAF4F0", line:"D8EBE4" },
+    kw:["自然","生命","成长","色彩","艺术","治愈","正念","放松","呼吸","冥想","身体"],
+    stage:["初中","高中"], style:["smart","book"], theme:["mint"],
+    hint:"森系彩绘：多彩点缀、自然元素、语气温柔，适合生命教育与正念放松" },
+
+  { id:"d1", nm:"焦糖插画", scene:"小学 · 绘本故事", src:"演示文稿1.pptx · 仓耳渔阳体 W04",
+    ft:"华文行楷", fb:"微软雅黑", deco:"blob", hero:"EFAD3A",
+    pal:{ bg:"FFFAF3", deep:"35240F", card:"FFFFFF", ink:"3A2A14", ink2:"8A7350",
+          accent:"A9631A", accent2:"9B5836", soft:"FCE9CB", line:"F3DFC2" },
+    kw:["绘本","故事","童话","动物","勇敢","想象","探险","小学","低年级"],
+    stage:["小学"], style:["book"], theme:["warm"],
+    hint:"绘本故事：大幅插画、焦糖暖色、旁白式短句，适合小学故事型课堂" },
+
+  { id:"dp", nm:"淡彩马卡龙", scene:"通用 · 柔和轻盈", src:"演示文稿pptx.pptx · 站酷快乐体",
+    ft:"幼圆", fb:"等线", deco:"dot", hero:"7AB2DC", noimg:true,
+    pal:{ bg:"FDFBFA", deep:"2B1E22", card:"FFFFFF", ink:"4A343A", ink2:"8A757B",
+          accent:"35719E", accent2:"FFD469", soft:"FFF0F2", line:"F0E2E6" },
+    kw:["自我","气质","性格","兴趣","生涯","青春期","身体","变化","性别","尊重","认识"],
+    stage:["初中","高中"], style:["smart"], theme:[], prio:0.6,
+    hint:"淡彩马卡龙：柔和渐层、圆润图形、轻盈语气，适合自我认识与青春期话题" }
+];
+
+/* 学段判定：把「初二 / 小学四年级 / 高一」归到三档，用于模板匹配 */
+function smGradeBand(g){
+  const s = String(g || "");
+  if(/小学|低年级|一年级|二年级|三年级|四年级|五年级|六年级/.test(s)) return "小学";
+  if(/高中|高一|高二|高三/.test(s)) return "高中";
+  return "初中";
+}
+function smTplById(id){
+  for(let i = 0; i < PPT_TEMPLATES.length; i++){
+    if(PPT_TEMPLATES[i].id === id) return PPT_TEMPLATES[i];
+  }
+  return null;
+}
+/* 按主题词 / 学段 / 版式 / 基础配色 / 是否有图 打分，选一套最贴的模板 */
+function smAutoTpl(st){
+  const band = smGradeBand(st.grade);
+  const txt = [st.topic, st.req, st.plan, st.warm, st.grade].join(" ").slice(0, 6000);
+  const style = st.style || "smart";
+  let best = PPT_TEMPLATES[0], bs = -1e9;
+  PPT_TEMPLATES.forEach((t, i) => {
+    let s = 0, hit = 0;
+    /* 命中封顶 3 个词：长教案里词多不代表更贴题 */
+    (t.kw || []).forEach(w => { if(hit < 3 && w && txt.indexOf(w) >= 0){ s += 3; hit++; } });
+    if((t.stage || []).indexOf(band) >= 0) s += 4;      /* 学段是最稳的信号 */
+    if((t.style || []).indexOf(style) >= 0) s += 2;
+    if((t.theme || []).indexOf(st.theme) >= 0) s += 1;
+    if(st.imgs === false && t.noimg) s += 2;
+    if(t.prio) s += t.prio;                             /* 通用型模板做安全兜底 */
+    if(t.id === "t9" && /危机|自杀|自伤|欺凌|霸凌|干预|生命教育/.test(txt)) s += 6;
+    s -= i * 0.01;                       /* 同分时优先排在前面的模板，保证结果稳定 */
+    if(s > bs){ bs = s; best = t; }
+  });
+  return best;
+}
+/* 解析当前生效的模板：返回 { t, auto, base } */
+function smTpl(st){
+  const s = st || {};
+  if(s.theme === "custom"){
+    const T = PPT_THEMES.custom || PPT_THEMES.warm;
+    return { t:{ id:"custom", nm:T.nm || "参考图", hero:T.accent, src:"参考图取色" }, auto:false, base:true };
+  }
+  if(s.tpl === "base"){
+    const T = PPT_THEMES[s.theme] || PPT_THEMES.warm;
+    return { t:{ id:"base", nm:T.nm }, auto:false, base:true };
+  }
+  if(s.tpl && s.tpl !== "auto"){
+    const t = smTplById(s.tpl);
+    if(t) return { t:t, auto:false, base:false };
+  }
+  return { t:smAutoTpl(s), auto:true, base:false };
+}
+function smTplNm(st){
+  return smTpl(st).t.nm;
+}
+/* 界面上那句解释文案：说清「现在用的是哪套、为什么」 */
+function smTplNote(st){
+  const R = smTpl(st);
+  if(R.base){
+    if(st.theme === "custom") return "正在用参考图取色，模板暂不生效；想套模板请点下面的模板卡";
+    return "只用基础配色，不套模板；点「自动匹配」让系统按主题与学段选一套";
+  }
+  const t = R.t, P = smPal(st);
+  /* 只取来源文件名：t.src 后半段是原 pptx 里的字体名（如「字魂27号-布丁体」），本机不一定有，
+     写进提示语会和实际生效字体自相矛盾，所以这里改成显示真正渲染用的 ft / fb */
+  const src = String(t.src || "原模板").split(" · ")[0];
+  return (R.auto ? "自动匹配 → " : "手动选择 → ") + t.nm + "（来源 " + src + " · 字体 " + P.ft + " / " + P.fb + "）";
+}
+/* 页面底部那行元信息：页数 / 比例 / 引擎 / 模板 / 备注 */
+function pptMetaText(st){
+  const styleNm = st.style === "smart" ? "智能版式" : st.style === "poster" ? "海报卡片" : "绘本手账";
+  return smPlan(st).length + " 页 · 16:9 · " + styleNm + " · " + smTplNm(st) + " · " + (st.notes ? "含讲师备注" : "不含备注");
+}
+
 /* ---------- 风格参考：从上传的封面图里取色，生成一套配色 ---------- */
 function srRgb2hsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
@@ -1802,14 +1985,57 @@ const SM_ART_ROLES = [
   ["circle", "团体与互助", ["团体","合作","班级","互助","求助","一起","活动","围坐","共同","信任"]]
 ];
 
-/* 主题视觉语言：同一套版式，三种图形语法 */
+/* 主题视觉语言：同一套版式，三种图形语法；选了模板则由模板接管配色 / 字体 / 母题 */
+function smTplFontOk(nm){
+  /* 只在浏览器里做一次探测，缺字体就回退到系统通用中文字体，避免整篇变成默认宋体 */
+  if(typeof document === "undefined") return true;
+  if(smTplFontOk.cache == null) smTplFontOk.cache = {};
+  if(smTplFontOk.cache[nm] != null) return smTplFontOk.cache[nm];
+  let ok = true;
+  try{
+    /* 用像素比对，而不是字宽比对：幼圆 / 楷体 / 黑体的中文步进与回退字体完全相同，
+       比字宽会把它们统统误判成“未安装”。真实字体的笔形一定与回退字体不同，像素差很明显
+       （本机实测 9 款模板字体像素差均 > 2300，未安装时为 0，阈值取 200 足够安全）*/
+    const cv = document.createElement("canvas");
+    cv.width = 200; cv.height = 72;
+    const g = cv.getContext("2d", { willReadFrequently: true });
+    const draw = fam => {
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.fillStyle = "#000"; g.fillRect(0, 0, cv.width, cv.height);
+      g.fillStyle = "#fff"; g.font = "44px " + fam;
+      g.textBaseline = "top";
+      g.fillText("永和九年岁在癸丑", 4, 6);
+      return g.getImageData(0, 0, cv.width, cv.height).data;
+    };
+    const base = draw("'__no_such_font__', monospace");
+    const cur = draw("'" + nm + "', monospace");
+    let diff = 0;
+    for(let i = 0; i < base.length; i += 4){ if(base[i] !== cur[i]) diff++; }
+    ok = diff > 200;
+  }catch(e){ ok = true; }
+  smTplFontOk.cache[nm] = ok;
+  return ok;
+}
 function smPal(st){
-  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
-  const dark = st.theme === "night";
-  return { bg:T.bg, deep:T.deep, card:T.card, ink:T.ink, ink2:T.ink2,
-           line:T.line, ac:T.accent, ac2:T.accent2, soft:T.soft, nm:T.nm,
-           dark:dark, deco: st.theme === "mint" ? "grid" : dark ? "ring" : "dot",
-           body: dark ? "FFFFFF" : T.ink };
+  const R = smTpl(st);
+  const base = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const t = R.t;
+  const P = R.base
+    ? { bg:base.bg, deep:base.deep, card:base.card, ink:base.ink, ink2:base.ink2,
+        line:base.line, ac:base.accent, ac2:base.accent2, soft:base.soft }
+    : { bg:t.pal.bg, deep:t.pal.deep, card:t.pal.card, ink:t.pal.ink, ink2:t.pal.ink2,
+        line:t.pal.line, ac:t.pal.accent, ac2:t.pal.accent2, soft:t.pal.soft };
+  const dark = R.base ? st.theme === "night" : false;
+  let ft = R.base ? "微软雅黑" : (t.ft || "微软雅黑");
+  let fb = R.base ? "微软雅黑" : (t.fb || "微软雅黑");
+  if(!smTplFontOk(fb)) fb = "微软雅黑";
+  if(!smTplFontOk(ft)) ft = fb;
+  return { bg:P.bg, deep:P.deep, card:P.card, ink:P.ink, ink2:P.ink2,
+           line:P.line, ac:P.ac, ac2:P.ac2, soft:P.soft, nm:t.nm,
+           tpl:t.id, tplAuto:!!R.auto,
+           ft:ft, fb:fb,
+           dark:dark, deco: R.base ? (st.theme === "mint" ? "grid" : dark ? "ring" : "dot") : (t.deco || "dot"),
+           body: dark ? "FFFFFF" : P.ink };
 }
 
 /* 深色页：封面 / 结束 / 求助，以及主题为 night 时的整册 */
@@ -1925,23 +2151,24 @@ function smEll(x,y,w,h,opt){
 }
 function smText(s,x,y,w,h,opt){
   const o = Object.assign({ t:"text", x:x, y:y, w:w, h:h, txt:String(s == null ? "" : s),
-    fs:18, bold:false, color:"000000", align:"left", valign:"top", ls:0 }, opt || {});
+    fs:18, bold:false, color:"000000", align:"left", valign:"top", ls:0, font:"b" }, opt || {});
   return o;
 }
-/* 标题：自动缩字 + 可折行，默认垂直居中 */
+/* 标题：自动缩字 + 可折行，默认垂直居中；font="t" 走模板标题字体 */
 function smTitle(s,x,y,w,h,fs,opt){
   const f = smFit(s, fs, w, h - 0.06);
-  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, bold:true, valign:"middle" }, opt || {}));
+  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, bold:true, valign:"middle", font:"t" }, opt || {}));
 }
-/* 正文块：自动缩字 */
+/* 正文块：自动缩字；font="b" 走模板正文字体 */
 function smBody(s,x,y,w,h,fs,opt){
   const f = smFit(s, fs, w, h);
-  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, valign:"top" }, opt || {}));
+  return smText(f.txt, x, y, w, h, Object.assign({ fs:f.fs, valign:"top", font:"b" }, opt || {}));
 }
 
 /* ---------- 渲染器 1：DOM 预览（与 pptx 同坐标） ---------- */
-function smElHTML(e){
-  const P = v => (v / SM_W * 100).toFixed(3) + "%";
+function smElHTML(e, P){
+  const P_ = P || {};
+  const PX = v => (v / SM_W * 100).toFixed(3) + "%";
   const V = v => (v / SM_H * 100).toFixed(3) + "%";
   const FS = pt => (pt * 0.104167).toFixed(3) + "cqw";
   const RAD = v => (v / SM_W * 100).toFixed(3) + "cqw";
@@ -1950,14 +2177,16 @@ function smElHTML(e){
     const al = (100 - (a == null ? 0 : a)) / 100;
     return "rgba(" + ((n>>16)&255) + "," + ((n>>8)&255) + "," + (n&255) + "," + al.toFixed(3) + ")";
   };
-  const box = "position:absolute;left:" + P(e.x) + ";top:" + V(e.y) + ";width:" + P(e.w) + ";height:" + V(e.h) + ";";
+  const box = "position:absolute;left:" + PX(e.x) + ";top:" + V(e.y) + ";width:" + PX(e.w) + ";height:" + V(e.h) + ";";
   const rot = e.rot ? "transform:rotate(" + e.rot + "deg);" : "";
   if(e.t === "text"){
     const al = e.align === "center" ? "center" : e.align === "right" ? "right" : "left";
     const va = e.valign === "middle" ? "center" : e.valign === "bottom" ? "flex-end" : "flex-start";
+    const ff = (e.font === "t" ? P_.ft : P_.fb) || "";
     return '<div class="pv-txt" style="' + box + rot + "display:flex;flex-direction:column;justify-content:" + va +
       ";text-align:" + al + ";font-size:" + FS(e.fs) + ";line-height:1.45;white-space:pre-line;font-weight:" +
       (e.bold ? 800 : 500) + ";color:" + rgba(e.color, 0) + ";letter-spacing:" + (e.ls || 0) * 0.01 + "em;" +
+      (ff ? "font-family:'" + ff + "',sans-serif;" : "") +
       'overflow:hidden;word-break:break-word">' + esc(e.txt) + "</div>";
   }
   if(e.t === "image"){
@@ -1973,10 +2202,11 @@ function smSlideHTML(pg, idx, st){
   const P = smPal(st);
   const els = smLayout(pg, idx, st, P);
   const bg = smIsDark(pg, P) ? P.deep : P.bg;
-  return '<div class="pv-slide" style="background:#' + bg + '">' + els.map(smElHTML).join("") + "</div>";
+  return '<div class="pv-slide" style="background:#' + bg + '">' + els.map(el => smElHTML(el, P)).join("") + "</div>";
 }
 
 /* ---------- 渲染器 2：PptxGenJS（原生形状，可编辑） ---------- */
+/* F 既可以是单一字体名，也可以是 {t:标题字体, b:正文字体} */
 function smDraw(s, e, F){
   if(e.t === "image"){
     if(!e.src) return;
@@ -1988,7 +2218,8 @@ function smDraw(s, e, F){
     ? { color:e.line.c, width:e.line.w, transparency:(e.line.a == null ? 0 : e.line.a) }
     : { color:e.fill ? e.fill.c : "FFFFFF", transparency:100 };
   if(e.t === "text"){
-    const o = { x:e.x, y:e.y, w:e.w, h:e.h, fontFace:F, fontSize:e.fs, bold:!!e.bold,
+    const face = typeof F === "string" ? F : ((e.font === "t" ? F.t : F.b) || F.t || "微软雅黑");
+    const o = { x:e.x, y:e.y, w:e.w, h:e.h, fontFace:face, fontSize:e.fs, bold:!!e.bold,
       color:e.color, align:e.align || "left", valign:e.valign || "top",
       lineSpacing:e.fs * 1.45, charSpacing:e.ls || 0, margin:0.02 };
     if(e.rot) o.rotate = e.rot;
@@ -2014,6 +2245,21 @@ function smDeco(P){
     for(let i = 1; i <= 4; i++){
       a.push(smRect(SM_W - 2.35 + i * 0.47, 0, 0.008, SM_H, { fill:{ c:P.ac, a:82 } }));
     }
+  } else if(P.deco === "blob"){
+    /* 插画感：右上两个错位圆角块 + 左下一点，模仿卡通模板的柔和色块 */
+    a.push(smRound(SM_W - 3.5, -1.9, 4.3, 3.6, { r:1.5, fill:{ c:P.soft, a:12 } }));
+    a.push(smRound(SM_W - 2.2, 0.5, 1.55, 1.55, { r:0.77, fill:{ c:P.ac2, a:72 } }));
+    a.push(smRound(-0.9, SM_H - 1.5, 2.2, 2.2, { r:0.95, fill:{ c:P.soft, a:45 } }));
+  } else if(P.deco === "wave"){
+    /* 气泡感：右下同心圆 + 顶部渐隐色带 */
+    a.push(smEll(SM_W - 2.9, SM_H - 2.4, 3.9, 3.9, { fill:{ c:P.soft, a:10 } }));
+    a.push(smEll(SM_W - 2.05, SM_H - 1.55, 2.2, 2.2, { fill:{ c:P.ac2, a:78 } }));
+    a.push(smRect(0, 0, SM_W, 0.16, { fill:{ c:P.ac, a:12 } }));
+    a.push(smEll(0.55, 0.42, 0.11, 0.11, { fill:{ c:P.ac, a:45 } }));
+  } else if(P.deco === "plain"){
+    /* 极简：只在右下角点一枚小圆，避免抢正文 */
+    a.push(smEll(SM_W - 0.62, SM_H - 0.62, 0.26, 0.26, { fill:{ c:P.ac2, a:55 } }));
+    a.push(smRect(0, 0, SM_W, 0.1, { fill:{ c:P.ac, a:16 } }));
   } else {
     a.push(smEll(SM_W - 3.0, -2.0, 4.8, 4.8, { line:{ c:P.ac2, w:1.6, a:84 }, fill:{ c:P.deep, a:100 } }));
     a.push(smEll(SM_W - 2.2, -1.2, 3.0, 3.0, { line:{ c:P.ac, w:1.1, a:88 }, fill:{ c:P.deep, a:100 } }));
@@ -2034,9 +2280,9 @@ function smHead(P, kick, title, idx, forceDark){
   a.push(smTitle(title, SM_M, kick ? 1.02 : 0.86, SM_W - 2 * SM_M, kick ? 0.94 : 1.1, 31, { color:ink }));
   a.push(smRect(SM_M, 2.12, 0.78, 0.075, { fill:{ c:P.ac2, a:dark ? 0 : 0 } }));
   a.push(smRect(SM_M + 0.92, 2.155, SM_W - 2 * SM_M - 0.92, 0.012, { fill:{ c: dark ? "FFFFFF" : P.line, a: dark ? 80 : 0 } }));
-  a.push(smText("心理老师工作台 · 一键出课件", SM_M, SM_H - 0.52, 6.4, 0.28, { fs:8.6, color: dark ? "B9C6DD" : P.ink2, valign:"middle" }));
+  a.push(smText("心理老师工作台 · 一键出课件", SM_M, SM_H - 0.52, 6.4, 0.28, { fs:8.6, color: dark ? P.soft : P.ink2, valign:"middle" }));
   a.push(smText(String(idx + 1).padStart(2, "0"), SM_W - SM_M - 0.72, SM_H - 0.52, 0.72, 0.28,
-    { fs:9.6, bold:true, color: dark ? "D8E2F2" : P.ink2, align:"right", valign:"middle" }));
+    { fs:9.6, bold:true, color: dark ? P.soft : P.ink2, align:"right", valign:"middle" }));
   return a;
 }
 
@@ -2337,7 +2583,7 @@ function smLayEnd(pg, idx, st, P){
   a.push(smRect(SM_M, 2.2, 4.4, 0.09, { fill:{ c:P.ac2, a:0 } }));
   a.push(smTitle(pg.title || "谢谢", SM_M, 2.46, src ? 7.2 : SM_W - 2 * SM_M, 1.62, 72, { color:"FFFFFF" }));
   a.push(smBody(pg.sub || "", SM_M, 4.24, src ? 7.2 : SM_W - 2 * SM_M - 1.4, 0.7, 18, { color:P.ac2 }));
-  a.push(smText("心理老师工作台 · " + P.nm, SM_M, SM_H - 0.94, SM_W - 2 * SM_M, 0.34, { fs:11.5, color:"9FB0CE", valign:"middle" }));
+  a.push(smText("心理老师工作台 · " + P.nm, SM_M, SM_H - 0.94, SM_W - 2 * SM_M, 0.34, { fs:11.5, color:P.soft, valign:"middle" }));
   return a;
 }
 
@@ -2348,10 +2594,10 @@ function smSegs(m){
     .map(([n,r]) => ({ t:n, m:Math.max(2, Math.round(m * r)) }));
 }
 function smBasePlan(st){
-  const c = pptTopicData(st.topic), T = PPT_THEMES[st.theme] || PPT_THEMES.warm, m = st.minutes || 40;
+  const c = pptTopicData(st.topic), m = st.minutes || 40;
   const nums = ["01","02","03"];
   return [
-    { type:"cover", kick:st.grade, title:st.topic || "心理课", sub:c.tag, items:[m + " 分钟", "智能版式", T.nm],
+    { type:"cover", kick:st.grade, title:st.topic || "心理课", sub:c.tag, items:[m + " 分钟", "智能版式", smTplNm(st)],
       note:"开场 1 分钟：一句话说明今天要解决的一个具体问题，不铺垫太长。\n提醒学生：本课不需要公开自己的隐私，可以只说「我观察到」。" },
     { type:"agenda", kick:"OBJECTIVES", title:"这节课，我们想做到三件事", items:c.goals.map(g => ({ t:g, b:"" })),
       note:"把目标读一遍即可，不用展开。\n讲完可以问一句：这三条里，你最想带走哪一条？举手看一下分布。" },
@@ -2491,6 +2737,7 @@ function smPrompt(st){
   const plan = String(st.plan || "").trim().slice(0, 6000);
   const warm = String(st.warm || "").trim().slice(0, 2500);
   const wp = smWarmPick(st);
+  const TP = smTpl(st).t;
   const brief = {
     topic:st.topic, grade:st.grade, minutes:st.minutes,
     tag:c.tag, goals:c.goals,
@@ -2503,7 +2750,7 @@ function smPrompt(st){
     "只输出一个 JSON 对象，不要解释、不要 Markdown 代码块：",
     '{"pages":[{"type":"版式","kick":"英文小标≤14字符","title":"本页标题≤16字","sub":"副标题≤30字","quote":"仅 quote 页的大引文≤28字","items":["..."],"note":"讲师备注≤50字","img":"bear|tangle|rain|talk|circle"}]}',
     "可用版式（type 只能取以下值）：",
-    "cover 封面（title=课程名，items=三个胶囊：时长/页数/配色）；",
+    "cover 封面（title=课程名，items=三个胶囊：时长/页数/" + (TP ? TP.nm : "配色") + "）；",
     "agenda 目标清单（3 条 {t,b}）；questions 暖身提问（3 条短问句，可直接用选定热身活动的步骤）；",
     "statement 单点观点（1 条主句 + 2 条支撑，items 按重要性排序）；",
     "visual 图文讲解（左侧大图 + 右侧 3 条 {t,b} 要点，用于重难点或课本核心图）；",
@@ -2520,6 +2767,7 @@ function smPrompt(st){
     "正文每条 ≤ 30 字、标题 ≤ 16 字、讲师备注 ≤ 50 字；同一版式最多连用 2 次，整份至少用到 8 种版式；",
     "讲师备注写可执行提示：这一页讲多久、怎么提问、有什么边界提醒。",
     "面向 " + st.grade + " 学生，语气温和具体，不出现真实姓名；涉及自伤或危机时提示向心理老师与热线求助。",
+    TP ? ("【视觉模板】本次课件套用「" + TP.nm + "」模板。" + (TP.hint || "") + " 文案语气、标题长短与配图取向请贴合该模板气质；不要输出任何排版、颜色或代码。") : "",
     req ? ("用户额外要求（优先满足）：" + req) : "用户没有额外要求，按教案顺序自选版式。",
     warm ? ("【热身活动库】按主题挑选 1 个最匹配的活动，允许按主题改写，并在该页 note 里用一句话说明理由：" + warm) : "",
     warm ? ("预选热身活动：建议用「" + (wp ? wp.act : "无") + "」" + (wp && wp.score > 0 ? "（关键词命中）" : "")) : "",
@@ -2694,7 +2942,7 @@ function smLessonParse(text, st){
     : "3 到 5 分钟。举手统计比逐个点名更安全；不想说可以跳过。";
   const pages = [
     { type:"cover", kick:st.grade, title:title || st.topic || "心理课", sub:c.tag,
-      items:[m + " 分钟", "按教案排课", (PPT_THEMES[st.theme] || PPT_THEMES.warm).nm], img:"bear",
+      items:[m + " 分钟", "按教案排课", smTplNm(st)], img:"bear",
       note:"开场 1 分钟：说明今天要解决的一个具体问题，不铺垫太长；提醒可以只说「我观察到」。" },
     { type:"agenda", kick:"OBJECTIVES", title:"这节课，我们想做到三件事", items:g3, img:"circle",
       note:"把目标读一遍，问一句：这三条里你最想带走哪一条？" },
@@ -2824,11 +3072,12 @@ function smPageNote(pg, i){
 
 /* ---------- 生成 pptx：与预览同一套元素坐标 ---------- */
 function ppBuildSmart(st){
-  const P = smPal(st), pages = smPlan(st), F = "微软雅黑";
+  const P = smPal(st), pages = smPlan(st), F = { t:P.ft, b:P.fb };
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.title = st.topic + " · " + st.grade;
   pptx.author = "心理老师工作台";
+  pptx.subject = "模板：" + P.nm + " · 字体：" + P.ft + " / " + P.fb;
   pages.forEach((pg, i) => {
     const s = pptx.addSlide();
     s.background = { color:smIsDark(pg, P) ? P.deep : P.bg };
@@ -2867,9 +3116,11 @@ function pptTopicData(name){
 
 function pptState(){
   if(!data.__ppt || typeof data.__ppt!=="object"){
-    data.__ppt = { topic:"情绪管理", grade:"初二", minutes:40, theme:"warm", style:"smart", notes:true, toPlan:true, req:"", plan:"", warm:"", imgs:true };
+    data.__ppt = { topic:"情绪管理", grade:"初二", minutes:40, theme:"warm", tpl:"auto", style:"smart", notes:true, toPlan:true, req:"", plan:"", warm:"", imgs:true };
   }
   if(!data.__ppt.style) data.__ppt.style = "smart";
+  if(typeof data.__ppt.tpl !== "string") data.__ppt.tpl = "auto";
+  if(data.__ppt.tpl !== "auto" && data.__ppt.tpl !== "base" && !smTplById(data.__ppt.tpl)) data.__ppt.tpl = "auto";
   if(typeof data.__ppt.req !== "string") data.__ppt.req = "";
   if(typeof data.__ppt.plan !== "string") data.__ppt.plan = "";
   if(typeof data.__ppt.warm !== "string") data.__ppt.warm = "";
@@ -2916,12 +3167,12 @@ function pptOutlineHTML(html){
 function pptSlideSpecs(st){
   if((st.style||"smart")==="smart") return smPlan(st);
   const c = pptTopicData(st.topic);
-  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const P = smPal(st);
   const seg = [["暖身导入",.12],["知识点讲解",.30],["体验活动",.28],["案例讨论",.20],["小结与延伸",.10]]
     .map(([n,r])=>n + "　—　" + Math.max(2, Math.round(st.minutes*r)) + " 分钟");
   return [
     { kind:"cover", eyebrow:"心理课 · " + st.grade, title:st.topic, tag:c.tag,
-      meta:[st.minutes + " 分钟", "15 页", T.nm] },
+      meta:[st.minutes + " 分钟", "15 页", P.nm] },
     { en:"OBJECTIVES", title:"这节课，我们想做到三件事", items:c.goals, size:21 },
     { en:"WARM UP", title:"先热个身：三个小问题", items:[
         "最近一周，你因为「"+st.topic+"」烦过吗？",
@@ -2950,7 +3201,10 @@ function pptSlideSpecs(st){
 function pvSlideHTML(spec, st, idx){
   if((st.style||"book")==="smart") return smSlideHTML(spec, idx, st);
   if((st.style||"book")==="book") return pvBookHTML(spec, st, idx);
-  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const PA = smPal(st);
+  const T = { bg:PA.bg, deep:PA.deep, card:PA.card, ink:PA.ink, ink2:PA.ink2, line:PA.line,
+              accent:PA.ac, accent2:PA.ac2, soft:PA.soft, nm:PA.nm };
+  const FF = "--pvfb:'" + PA.fb + "';--pvft:'" + PA.ft + "';";
   const W=13.333, H=7.5, M=0.78;
   const L  = v => (v/W*100).toFixed(2) + "%";
   const Tp = v => (v/H*100).toFixed(2) + "%";
@@ -2967,7 +3221,7 @@ function pvSlideHTML(spec, st, idx){
     const ring = k => { const d = 4.9 - k*0.55;
       return `<div style="position:absolute;left:${L(W-1.15-d/2)};top:${Tp(-0.75-d/2)};width:${Wd(d)};height:${Hg(d)};
         border-radius:50%;border:${BD(3.2-k*0.8)} solid ${cl.ac2};opacity:${(.30-k*.08).toFixed(2)}"></div>`; };
-    return `<div class="pv-slide" style="background:${cl.deep};color:#fff">
+    return `<div class="pv-slide" style="${FF}background:${cl.deep};color:#fff">
       ${ring(0)}${ring(1)}${ring(2)}
       <div style="position:absolute;left:0;top:${Tp(H-1.55)};width:100%;height:${Hg(1.55)};background:${cl.ac}"></div>
       <div style="position:absolute;left:${L(M)};top:${Tp(1.55)};width:${Wd(2.6)};height:${Hg(0.42)};border-radius:${RAD(0.21)};border:${BD(1.2)} solid rgba(255,255,255,.55)"></div>
@@ -2984,20 +3238,20 @@ function pvSlideHTML(spec, st, idx){
     </div>`;
   }
   if(spec.kind==="end"){
-    return `<div class="pv-slide" style="background:${cl.deep};color:#fff">
+    return `<div class="pv-slide" style="${FF}background:${cl.deep};color:#fff">
       <div style="position:absolute;left:${L(W-5.2)};top:${Tp(0.9)};width:${Wd(4.25)};height:${Hg(4.25)};border-radius:50%;border:${BD(2.2)} solid ${cl.ac2};opacity:.22"></div>
       <div style="position:absolute;left:${L(W-4.2)};top:${Tp(1.9)};width:${Wd(2.25)};height:${Hg(2.25)};border-radius:50%;background:${cl.ac};opacity:.22"></div>
       <div style="position:absolute;left:${L(M)};top:${Tp(2.2)};width:${Wd(5.0)};height:${Hg(0.1)};background:${cl.ac2}"></div>
       <div class="pv-title" style="left:${L(M)};top:${Tp(2.5)};width:${Wd(W-2*M)};height:${Hg(1.62)};font-size:${FS(76)};line-height:1.15;color:#fff">谢谢</div>
       <div class="pv-txt" style="left:${L(M)};top:${Tp(4.25)};width:${Wd(W-2*M-1.2)};font-size:${FS(19)};color:${cl.ac2}">愿你和你的学生，都被好好接住。</div>
-      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-0.92)};width:${Wd(W-2*M)};font-size:${FS(12)};color:#9FB0CE">心理老师工作台 · ${esc(T.nm)}</div>
+      <div class="pv-txt" style="left:${L(M)};top:${Tp(H-0.92)};width:${Wd(W-2*M)};font-size:${FS(12)};color:${cl.soft}">心理老师工作台 · ${esc(T.nm)}</div>
     </div>`;
   }
 
   const dark = !!spec.dark;
   const bg   = dark ? cl.deep : cl.bg;
   const ink  = dark ? "#FFFFFF" : cl.ink;
-  const ink2 = dark ? "#B9C6DD" : cl.ink2;
+  const ink2 = dark ? cl.soft : cl.ink2;
   const cardBg = dark ? "rgba(255,255,255,.08)" : cl.card;
   const cardLn = dark ? "rgba(255,255,255,.18)" : cl.line;
   const y0 = spec.y0 || 2.52, y1 = spec.y1 || 6.72;
@@ -3019,7 +3273,7 @@ function pvSlideHTML(spec, st, idx){
     : `<div style="position:absolute;left:${L(W-3.3)};top:${Tp(-2.3)};width:${Wd(4.9)};height:${Hg(4.9)};border-radius:50%;background:${cl.soft}"></div>
        <div style="position:absolute;left:${L(W-1.865)};top:${Tp(1.035)};width:${Wd(0.85)};height:${Hg(0.85)};border-radius:50%;border:${BD(1.4)} solid ${cl.ac2};opacity:.55"></div>
        <div style="position:absolute;left:${L(W-1.62)};top:${Tp(1.28)};width:${Wd(0.36)};height:${Hg(0.36)};border-radius:50%;background:${cl.ac}"></div>`;
-  return `<div class="pv-slide" style="background:${bg};color:${ink}">
+  return `<div class="pv-slide" style="${FF}background:${bg};color:${ink}">
     <div style="position:absolute;left:0;top:0;width:${Wd(0.14)};height:100%;background:${cl.ac}"></div>
     ${deco}
     <div style="position:absolute;left:${L(M)};top:${Tp(0.62)};width:${Wd(1.18)};height:${Hg(0.38)};border-radius:${RAD(0.19)};background:${cl.ac}"></div>
@@ -3053,7 +3307,7 @@ function pvOpen(i){
       <span class="nm" id="pv-nm"></span>
       <button class="pv-nav" id="pv-next">下一页 →</button>
     </div>
-    <div class="pv-hint" style="color:#fff;opacity:.75">${esc((PPT_THEMES[st.theme]||PPT_THEMES.warm).nm)} · ${esc(st.grade)} · ${st.minutes} 分钟 · 实际字体与间距以导出的 PPTX 为准</div>`;
+    <div class="pv-hint" style="color:#fff;opacity:.75">${esc(smTplNm(st))} · ${esc(st.grade)} · ${st.minutes} 分钟 · 实际字体与间距以导出的 PPTX 为准</div>`;
   document.body.appendChild(box);
   const draw = () => {
     $("#pv-stage").innerHTML = pvSlideHTML(specs[pvAt], st, pvAt);
@@ -3083,14 +3337,17 @@ function pvClose(){
 function ppBuildDeck(st){
   if((st.style||"book")==="smart") return ppBuildSmart(st);
   if((st.style||"book")==="book") return ppBuildBook(st);
-  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const P = smPal(st);
+  const T = { bg:P.bg, deep:P.deep, card:P.card, ink:P.ink, ink2:P.ink2, line:P.line,
+              accent:P.ac, accent2:P.ac2, soft:P.soft, nm:P.nm };
   const c = pptTopicData(st.topic);
-  const F = "微软雅黑";
+  const F = P.fb, FT = P.ft;
   const W = 13.333, H = 7.5, M = 0.78;
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.title = st.topic + " · " + st.grade;
   pptx.author = "心理老师工作台";
+  pptx.subject = "模板：" + P.nm + " · 字体：" + P.ft + " / " + P.fb;
   const S = pptx.ShapeType;
 
   const newSlide = bg => { const s = pptx.addSlide(); s.background = { color: bg || T.bg }; return s; };
@@ -3099,15 +3356,18 @@ function ppBuildDeck(st){
     if(rad) o.rectRadius = rad;
     s.addShape(type, o);
   };
+  /* 深色页的页脚要用浅色：夜间主题的 soft 本身是深蓝，直接当文字色会看不见 */
+  const luma = h => { const n = parseInt(h, 16); return ((n>>16&255)*0.299 + (n>>8&255)*0.587 + (n&255)*0.114); };
+  const footSoft = luma(T.soft) > 140 ? T.soft : "C9D2EA";
   const foot = (s, i, dark) => {
-    s.addText("心理老师工作台 · 一键出课件", { x:M, y:H-0.5, w:6, h:0.25, fontFace:F, fontSize:9, color:dark?"B9C6DD":T.ink2 });
+    s.addText("心理老师工作台 · 一键出课件", { x:M, y:H-0.5, w:6, h:0.25, fontFace:F, fontSize:9, color:dark?footSoft:T.ink2 });
     s.addText(String(i).padStart(2,"0"), { x:W-M-0.6, y:H-0.52, w:0.6, h:0.3, fontFace:F, fontSize:11, bold:true, color:dark?"FFFFFF":T.ink2, align:"right" });
   };
   const head = (s, en, title, num, dark) => {
     sh(s, S.rect, 0, 0, 0.14, H, T.accent, T.accent);
     sh(s, S.roundRect, M, 0.62, 1.18, 0.38, T.accent, T.accent, 0.19);
     s.addText(en, { x:M, y:0.62, w:1.18, h:0.38, fontFace:F, fontSize:9.5, bold:true, color:"FFFFFF", align:"center", valign:"middle", charSpacing:1 });
-    s.addText(title, { x:M, y:1.12, w:W-2*M, h:0.9, fontFace:F, fontSize:33, bold:true, color:dark?"FFFFFF":T.ink, valign:"middle" });
+    s.addText(title, { x:M, y:1.12, w:W-2*M, h:0.9, fontFace:FT, fontSize:33, bold:true, color:dark?"FFFFFF":T.ink, valign:"middle" });
     sh(s, S.rect, M, 2.1, 0.9, 0.1, T.accent2, T.accent2);
     s.addShape(S.rect, { x:M+1.05, y:2.14, w:W-2*M-1.05, h:0.02,
       fill:{ color: dark ? "FFFFFF" : T.line, transparency: dark ? 82 : 0 }, line:{ color: dark ? "FFFFFF" : T.line, transparency:100 } });
@@ -3150,7 +3410,7 @@ function ppBuildDeck(st){
     s.addShape(S.roundRect, { x:M, y:1.55, w:2.6, h:0.42, rectRadius:0.21,
       fill:{ color:"FFFFFF", transparency:100 }, line:{ color:"FFFFFF", width:1.2, transparency:45 } });
     s.addText("心理课 · " + st.grade, { x:M, y:1.55, w:2.6, h:0.42, fontFace:F, fontSize:12.5, bold:true, color:"FFFFFF", align:"center", valign:"middle", charSpacing:2 });
-    s.addText(st.topic, { x:M, y:2.15, w:W-2*M-0.8, h:1.55, fontFace:F, fontSize:62, bold:true, color:"FFFFFF", valign:"middle" });
+    s.addText(st.topic, { x:M, y:2.15, w:W-2*M-0.8, h:1.55, fontFace:FT, fontSize:62, bold:true, color:"FFFFFF", valign:"middle" });
     s.addText(c.tag, { x:M, y:3.86, w:W-2*M-1.4, h:0.5, fontFace:F, fontSize:17, color:T.accent2 });
     sh(s, S.rect, M, 4.72, 1.0, 0.08, T.accent2, T.accent2);
     s.addText("★", { x:W-2.55, y:3.18, w:1.2, h:0.8, fontFace:F, fontSize:40, color:T.accent2, rotate:12 });
@@ -3265,9 +3525,9 @@ function ppBuildDeck(st){
     s.addShape(S.ellipse, { x:W-5.2, y:0.9, w:4.25, h:4.25, fill:{ color:T.deep, transparency:100 }, line:{ color:T.accent2, width:2.2, transparency:78 } });
     s.addShape(S.ellipse, { x:W-4.2, y:1.9, w:2.25, h:2.25, fill:{ color:T.accent, transparency:78 }, line:{ color:T.accent, transparency:100 } });
     sh(s, S.rect, M, 2.2, 5.0, 0.1, T.accent2, T.accent2);
-    s.addText("谢谢", { x:M, y:2.5, w:W-2*M, h:1.62, fontFace:F, fontSize:76, bold:true, color:"FFFFFF", valign:"middle" });
+    s.addText("谢谢", { x:M, y:2.5, w:W-2*M, h:1.62, fontFace:FT, fontSize:76, bold:true, color:"FFFFFF", valign:"middle" });
     s.addText("愿你和你的学生，都被好好接住。", { x:M, y:4.25, w:W-2*M-1.2, h:0.5, fontFace:F, fontSize:19, color:T.accent2 });
-    s.addText("心理老师工作台 · " + T.nm, { x:M, y:H-0.92, w:W-2*M, h:0.35, fontFace:F, fontSize:12, color:"9FB0CE" });
+    s.addText("心理老师工作台 · " + T.nm, { x:M, y:H-0.92, w:W-2*M, h:0.35, fontFace:F, fontSize:12, color:T.soft });
     note(s, "留 30 秒安静收尾，不急着下课。\n如果有人在课上被触动，课后单独找他一分钟。" );
   }
 
@@ -3318,11 +3578,15 @@ const BOOK_NOTE = [
 ];
 
 function bookPal(st){
-  const T = PPT_THEMES[st.theme] || PPT_THEMES.warm;
+  const P = smPal(st);
   PPT_AI.topic = st.topic || "";
   PPT_AI.use = st.art === "ai";
-  return { paper:BOOK.paper, panel:BOOK.panel, strip:BOOK.strip, ink:BOOK.ink,
-           sub:BOOK.sub, storm:BOOK.storm, ac:T.accent, ac2:T.accent2, nm:T.nm };
+  /* 选了模板：纸张与墨色跟着模板走；只用基础配色时保留绘本母版的手账纸感 */
+  const base = P.tpl === "base";
+  return { paper: base ? BOOK.paper : P.bg, panel: base ? BOOK.panel : P.card,
+           strip: base ? BOOK.strip : P.soft, ink: base ? BOOK.ink : P.ink,
+           sub: base ? BOOK.sub : P.ink2, storm: base ? BOOK.storm : P.deep,
+           ac:P.ac, ac2:P.ac2, nm:P.nm, ft:P.ft, fb:P.fb };
 }
 function bookArt(k){
   if(PPT_AI.use && PPT_AI.topic){
@@ -3406,6 +3670,7 @@ function pvBookHTML(spec, st, idx){
   const RAD = v => (v/W*100).toFixed(3)+"cqw";
   const ink="#"+P.ink, subC="#"+P.sub, ac="#"+P.ac, ac2="#"+P.ac2;
   const paper="#"+P.paper, panel="#"+P.panel, stripC="#"+P.strip, storm="#"+P.storm;
+  const FF = "--pvfb:'" + P.fb + "';--pvft:'" + P.ft + "';";
   const num = String(idx+1).padStart(2,"0");
 
   const frame = (x,y,w,h,key) =>
@@ -3420,14 +3685,15 @@ function pvBookHTML(spec, st, idx){
     `<div style="position:absolute;left:${L(12.18)};top:${Tp(0.30)};width:${Wd(0.52)};height:${Hg(0.52)};opacity:.6">${bookStar(ac2)}</div>
      <div style="position:absolute;left:${L(0.48)};top:${Tp(6.40)};width:${Wd(0.22)};height:${Hg(0.22)};border-radius:50%;border:${BD(1.1)} solid ${ac2};opacity:.5"></div>
      <div style="position:absolute;left:${L(0.80)};top:${Tp(6.74)};width:${Wd(0.12)};height:${Hg(0.12)};border-radius:50%;background:${ac2};opacity:.45"></div>`;
-  const foot = dark =>
-    `<div class="pv-txt" style="left:${L(1.02)};top:${Tp(7.02)};width:45%;font-size:${FS(8.5)};color:${dark?"#C8D2DE":subC}">心理老师工作台 · 一键出课件</div>
-     <div class="pv-txt" style="left:${L(11.49)};top:${Tp(7.00)};width:${Wd(0.82)};height:${Hg(0.24)};font-size:${FS(9)};color:${dark?"#C8D2DE":subC};text-align:right">${num}</div>`;
+  /* 页脚永远落在页面纸底上（深色只出现在中间面板），所以不跟着 dark 走 */
+  const foot = () =>
+    `<div class="pv-txt" style="left:${L(1.02)};top:${Tp(7.02)};width:45%;font-size:${FS(8.5)};color:${subC}">心理老师工作台 · 一键出课件</div>
+     <div class="pv-txt" style="left:${L(11.49)};top:${Tp(7.00)};width:${Wd(0.82)};height:${Hg(0.24)};font-size:${FS(9)};color:${subC};text-align:right">${num}</div>`;
 
   if(spec.kind==="cover"){
     const tsz = spec.title.length>12 ? 34 : spec.title.length>8 ? 39 : 46;
     const tapes = [["心理课 · "+st.grade,1.02,1.66], [st.minutes+" 分钟",2.84,1.32], ["15 页",4.32,1.10]];
-    return `<div class="pv-slide" style="background:${paper};color:${ink}">
+    return `<div class="pv-slide" style="${FF}background:${paper};color:${ink}">
       ${doodle()}
       <div class="pv-title" style="left:${L(1.02)};top:${Tp(0.50)};width:${Wd(11.3)};height:${Hg(1.05)};justify-content:center;text-align:center;font-size:${FS(tsz)};line-height:1.12;color:${ink}">${esc(spec.title)}</div>
       ${stripBar(spec.tag, 1.70, 0.48, 10.4)}
@@ -3435,12 +3701,12 @@ function pvBookHTML(spec, st, idx){
       ${frame(6.83, 2.42, 5.48, 3.94, "tangle")}
       ${tapes.map(([t,x,w],k)=>`<div style="position:absolute;left:${L(x)};top:${Tp(6.50)};width:${Wd(w)};height:${Hg(0.40)};background:#FFFFFF;border:${BD(1.2)} solid ${ink};border-radius:${RAD(0.04)};transform:rotate(${(k-1)*1.1}deg)"></div>
         <div class="pv-txt" style="left:${L(x)};top:${Tp(6.50)};width:${Wd(w)};height:${Hg(0.40)};display:flex;align-items:center;justify-content:center;font-size:${FS(10)};font-weight:800;color:${ac};transform:rotate(${(k-1)*1.1}deg)">${esc(t)}</div>`).join("")}
-      ${foot(false)}
+      ${foot()}
     </div>`;
   }
 
   if(spec.kind==="end"){
-    return `<div class="pv-slide" style="background:${paper};color:${ink}">
+    return `<div class="pv-slide" style="${FF}background:${paper};color:${ink}">
       ${doodle()}
       <div class="pv-title" style="left:${L(1.02)};top:${Tp(0.50)};width:${Wd(11.3)};height:${Hg(1.15)};justify-content:center;text-align:center;font-size:${FS(58)};line-height:1.1;color:${ink}">谢谢</div>
       <div class="pv-txt" style="left:${L(1.02)};top:${Tp(1.76)};width:${Wd(11.3)};height:${Hg(0.40)};text-align:center;font-size:${FS(15.5)};color:${subC}">愿你和你的学生，都被好好接住。</div>
@@ -3472,14 +3738,14 @@ function pvBookHTML(spec, st, idx){
   const tail = spec.tail
     ? `<div class="pv-txt" style="left:${L(TX+0.36)};top:${Tp(PY+PH-0.62)};width:${Wd(PW-0.64)};height:${Hg(0.38)};display:flex;align-items:center;font-size:${FS(11)};font-weight:800;line-height:1.4;color:${dark?"#FFFFFF":ac}">※ ${esc(spec.tail)}</div>`
     : "";
-  return `<div class="pv-slide" style="background:${paper};color:${ink}">
+  return `<div class="pv-slide" style="${FF}background:${paper};color:${ink}">
     ${doodle()}
     <div class="pv-title" style="left:${L(1.02)};top:${Tp(0.22)};width:${Wd(11.3)};height:${Hg(0.90)};justify-content:center;text-align:center;font-size:${FS(tsz)};line-height:1.2;color:${ink}">${esc(spec.title)}</div>
     ${stripBar(bookHook(idx), 1.18, 0.44, 9.9)}
     ${frame(AX, PY, 4.86, PH, BOOK_ART[idx])}
     <div style="position:absolute;left:${L(TX)};top:${Tp(PY)};width:${Wd(PW)};height:${Hg(PH)};background:${dark?storm:panel};border:${BD(1.5)} solid ${ink};border-radius:${RAD(0.05)}"></div>
     ${rows}${tail}
-    ${foot(dark)}
+    ${foot()}
   </div>`;
 }
 
@@ -3487,12 +3753,13 @@ function pvBookHTML(spec, st, idx){
 function ppBuildBook(st){
   const P = bookPal(st);
   const specs = pptSlideSpecs(st);
-  const F = "微软雅黑";
+  const F = P.fb, FT = P.ft;
   const W = 13.333, H = 7.5;
   const pptx = new PptxGenJS();
   pptx.layout = "LAYOUT_WIDE";
   pptx.title = st.topic + " · " + st.grade;
   pptx.author = "心理老师工作台";
+  pptx.subject = "模板：" + P.nm + " · 字体：" + P.ft + " / " + P.fb;
   const S = pptx.ShapeType;
 
   const newSlide = bg => { const s = pptx.addSlide(); s.background = { color: bg || P.paper }; return s; };
@@ -3514,9 +3781,9 @@ function ppBuildBook(st){
     s.addShape(S.ellipse, { x:0.80, y:6.74, w:0.12, h:0.12,
       fill:{ color:P.ac2, transparency:55 }, line:{ color:P.ac2, transparency:100 } });
   };
-  const foot = (s,i,dark) => {
-    s.addText("心理老师工作台 · 一键出课件", { x:1.02, y:7.02, w:6, h:0.24, fontFace:F, fontSize:8.5, color: dark ? "C8D2DE" : P.sub });
-    s.addText(String(i).padStart(2,"0"), { x:11.49, y:7.00, w:0.82, h:0.24, fontFace:F, fontSize:9, color: dark ? "C8D2DE" : P.sub, align:"right" });
+  const foot = (s,i) => {
+    s.addText("心理老师工作台 · 一键出课件", { x:1.02, y:7.02, w:6, h:0.24, fontFace:F, fontSize:8.5, color: P.sub });
+    s.addText(String(i).padStart(2,"0"), { x:11.49, y:7.00, w:0.82, h:0.24, fontFace:F, fontSize:9, color: P.sub, align:"right" });
   };
 
   specs.forEach((sp, i) => {
@@ -3525,7 +3792,7 @@ function ppBuildBook(st){
 
     if(sp.kind === "cover"){
       const tsz = sp.title.length>12 ? 34 : sp.title.length>8 ? 39 : 46;
-      s.addText(sp.title, { x:1.02, y:0.50, w:11.3, h:1.05, fontFace:F, fontSize:tsz, bold:true, color:P.ink, align:"center", valign:"middle" });
+      s.addText(sp.title, { x:1.02, y:0.50, w:11.3, h:1.05, fontFace:FT, fontSize:tsz, bold:true, color:P.ink, align:"center", valign:"middle" });
       strip(s, sp.tag, 1.70, 0.48, 10.4);
       pic(s, 1.02, 2.42, 5.48, 3.94, "bear");
       pic(s, 6.83, 2.42, 5.48, 3.94, "tangle");
@@ -3534,9 +3801,9 @@ function ppBuildBook(st){
           fill:{ color:"FFFFFF" }, line:{ color:P.ink, width:1.2 } });
         s.addText(t, { x, y:6.50, w, h:0.40, fontFace:F, fontSize:10, bold:true, color:P.ac, align:"center", valign:"middle", rotate:(k-1)*1.1 });
       });
-      foot(s, i+1, false);
+      foot(s, i+1);
     }else if(sp.kind === "end"){
-      s.addText("谢谢", { x:1.02, y:0.50, w:11.3, h:1.15, fontFace:F, fontSize:58, bold:true, color:P.ink, align:"center", valign:"middle" });
+      s.addText("谢谢", { x:1.02, y:0.50, w:11.3, h:1.15, fontFace:FT, fontSize:58, bold:true, color:P.ink, align:"center", valign:"middle" });
       s.addText("愿你和你的学生，都被好好接住。", { x:1.02, y:1.76, w:11.3, h:0.40, fontFace:F, fontSize:15.5, color:P.sub, align:"center", valign:"middle" });
       pic(s, 1.02, 2.42, 5.48, 4.10, "talk");
       pic(s, 6.83, 2.42, 5.48, 4.10, "circle");
@@ -3547,7 +3814,7 @@ function ppBuildBook(st){
       const AX = artRight ? 7.45 : 1.02, TX = artRight ? 1.02 : 6.18;
       const PY = 1.94, PH = 4.96, PW = 6.13;
       const tsz = sp.title.length>14 ? 24 : sp.title.length>10 ? 27 : 30;
-      s.addText(sp.title, { x:1.02, y:0.22, w:11.3, h:0.90, fontFace:F, fontSize:tsz, bold:true, color:P.ink, align:"center", valign:"middle" });
+      s.addText(sp.title, { x:1.02, y:0.22, w:11.3, h:0.90, fontFace:FT, fontSize:tsz, bold:true, color:P.ink, align:"center", valign:"middle" });
       strip(s, bookHook(i), 1.18, 0.44, 9.9);
       pic(s, AX, PY, 4.86, PH, BOOK_ART[i]);
       s.addShape(S.roundRect, { x:TX, y:PY, w:PW, h:PH, rectRadius:0.05,
@@ -3569,7 +3836,7 @@ function ppBuildBook(st){
       });
       if(sp.tail) s.addText("※ " + sp.tail, { x:TX+0.36, y:PY+PH-0.62, w:PW-0.64, h:0.38,
         fontFace:F, fontSize:11, bold:true, color: dark ? "FFFFFF" : P.ac, valign:"middle" });
-      foot(s, i+1, dark);
+      foot(s, i+1);
     }
     if(st.notes) s.addNotes(BOOK_NOTE[i] || "");
   });
@@ -5067,7 +5334,7 @@ function mxOutlineDownload(st, pages){
   const arr = pages || smPlan(st);
   const styleNm = st.style === "smart" ? "智能版式" : st.style === "book" ? "绘本手账" : "海报卡片";
   const out = ["# " + (st.topic || "心理课") + " · " + (st.grade || "") + " · " + (st.minutes || 40) + " 分钟", "",
-    "> " + arr.length + " 页 · 16:9 · " + styleNm + " · " + ((PPT_THEMES[st.theme] || PPT_THEMES.warm).nm), "", "## 课堂流程", ""];
+    "> " + arr.length + " 页 · 16:9 · " + styleNm + " · " + smTplNm(st), "", "## 课堂流程", ""];
   arr.forEach((p, i) => {
     out.push("### " + (i + 1) + ". " + (SM_LABEL[p.type] || p.type) + " · " + (p.title || ""));
     if(p.sub) out.push("- 副标题：" + p.sub);
@@ -5513,7 +5780,7 @@ function mxRefreshPpt(st){
   if($("#ppt-imglib")) $("#ppt-imglib").innerHTML = mxLibPanelHTML(st);
   if($("#ppt-outline")) $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
   if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
-  if($("#ppt-meta")) $("#ppt-meta").textContent = smPlan(st).length + " 页 · 16:9 · " + (st.style === "smart" ? "智能版式" : st.style === "poster" ? "海报卡片" : "绘本手账") + " · " + ((PPT_THEMES[st.theme] || PPT_THEMES.warm).nm) + " · " + (st.notes ? "含讲师备注" : "不含备注");
+  if($("#ppt-meta")) $("#ppt-meta").textContent = pptMetaText(st);
   if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(mxQaPages(st, smPlan(st)));
   if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + smPlan(st).length + " 页 · 生成后还会检查文件本身";
   planPaintSafe(st);
@@ -5921,6 +6188,17 @@ function renderPpt(){
       <div class="nm">参考图</div>
       <div class="dsc">${ref?'点此使用 · <span class="up" data-ref="again">换一张</span>':'<span class="up" data-ref="pick">上传封面取色</span>'}</div>
     </div><input type="file" id="ppt-ref-file" accept="image/*" hidden />`;
+  const TR = smTpl(st);
+  const tplCur = st.theme === "custom" ? "" : (TR.base ? "base" : TR.t.id);
+  const tplCard = (id, nm, dsc, bar) =>
+    `<div class="ppt-tpl ${tplCur===id?"on":""}" data-tpl="${attr(id)}">
+      <div class="bar" style="${bar}"></div>
+      <div class="nm">${esc(nm)}</div><div class="dsc">${esc(dsc)}</div></div>`;
+  const tplHTML = tplCard("base", "基础配色", "不套模板，只用上面的三套配色", "background:repeating-linear-gradient(45deg,#E9E3DA 0 6px,#F6F2EA 6px 12px)")
+    + PPT_TEMPLATES.map(t => tplCard(t.id, t.nm, t.scene,
+        "background:linear-gradient(90deg,#" + t.hero + " 0%,#" + t.pal.soft + " 60%,#" + t.pal.bg + " 100%)")).join("");
+  const tplAutoOn = st.theme !== "custom" && !TR.base && !!TR.auto;
+  const tplMode = st.theme !== "custom" && !TR.base;
   const planN = String(st.plan || "").trim().length;
   const planState = planN
     ? "已录入 " + planN + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排 12–16 页"
@@ -5947,7 +6225,17 @@ function renderPpt(){
             </div>
             <div class="field"><label>版式</label><div class="seg seg-3" id="ppt-style"><div class="opt ${(st.style||"smart")==="smart"?"on":""}" data-v="smart">智能版式</div><div class="opt ${st.style==="book"?"on":""}" data-v="book">绘本手账</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
           </div>
-          <div class="field"><label>配色</label><div class="ppt-swatch" id="ppt-theme">${swHTML}</div></div>
+          <div class="field"><label>配色 <span class="en">COLOR</span></label>
+            <div class="ppt-swatch ${tplMode?"dim":""}" id="ppt-theme">${swHTML}</div>
+            <div class="ppt-ainote">选了模板后配色与字体由模板接管；点任意配色卡即切回「基础配色」，可再单独调色。</div>
+          </div>
+          <div class="field"><label>模板 <span class="en">TEMPLATE</span></label>
+            <div class="ppt-tplauto ${tplAutoOn?"on":""}" id="ppt-tplauto">
+              <div class="row"><span class="nm">自动匹配</span><span class="tag">按主题 · 学段 · 版式</span></div>
+              <div class="dsc" id="ppt-tplnote">${esc(smTplNote(st))}</div>
+            </div>
+            <div class="ppt-tpls" id="ppt-tpls">${tplHTML}</div>
+          </div>
           <div class="field"><label>生成要求（可选） <span class="en">BRIEF</span></label>
             <textarea id="ppt-req" rows="2" style="min-height:62px" placeholder="例如：初三、节奏紧、多用数据和流程；少用大段文字；结尾落到行动">${esc(st.req||"")}</textarea>
             <div class="ppt-ainote">填好后点「AI 编排版式」，模型会按要求重排页面顺序与版式；不填则用内置版式。</div>
@@ -6036,7 +6324,7 @@ function renderPpt(){
             <button class="btn ghost" id="ppt-edit-outline" style="height:30px;padding:0 12px;font-size:12px">编辑大纲</button>
             <button class="btn ghost" id="ppt-export-outline" style="height:30px;padding:0 12px;font-size:12px">导出大纲</button>
           </div>
-          <div class="ppt-note" id="ppt-meta">${smPlan(st).length} 页 · 16:9 · ${st.style==="smart"?"智能版式":st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}</div>
+          <div class="ppt-note" id="ppt-meta">${pptMetaText(st)}</div>
         <div class="ppt-card">
           <h3>质量检查 <span class="en">QA</span></h3>
           <div class="ppt-ainote" id="ppt-qa-sub">检查 ${smPlan(st).length} 页 · 生成后还会检查文件本身</div>
@@ -6069,7 +6357,14 @@ function renderPpt(){
     if($("#llm-plan")) $("#llm-plan").textContent = smHasAi(st) ? "重新编排版式" : "AI 编排版式";
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
-    $("#ppt-meta").textContent = `${smPlan(st).length} 页 · 16:9 · ${st.style==="smart"?"智能版式":st.style==="poster"?"海报卡片":"绘本手账"} · ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm} · ${st.notes?"含讲师备注":"不含备注"}`;
+    $("#ppt-meta").textContent = pptMetaText(st);
+    const R2 = smTpl(st), md = st.theme !== "custom" && !R2.base;
+    if($("#ppt-tplnote")) $("#ppt-tplnote").textContent = smTplNote(st);
+    if($("#ppt-tplauto")) $("#ppt-tplauto").classList.toggle("on", st.theme !== "custom" && !!R2.auto);
+    if($("#ppt-tpls")) $("#ppt-tpls").querySelectorAll("[data-tpl]").forEach(el=>
+      el.classList.toggle("on", el.dataset.tpl === (st.theme === "custom" ? "" : (R2.base ? "base" : R2.t.id))));
+    if($("#ppt-theme")) $("#ppt-theme").classList.toggle("dim", md);
+    if($("#ppt-theme")) $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o.dataset.theme === st.theme));
     if($("#ppt-ainote")) $("#ppt-ainote").innerHTML = aiNoteHTML(st);
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     if($("#llm-state")) llmPaint();
@@ -6103,7 +6398,14 @@ function renderPpt(){
       const r = data.__pptStyleRef;
       if(!r || !r.palette || (e.target.closest && e.target.closest("[data-ref='again']"))){ $("#ppt-ref-file").click(); return; }
     }
-    st.theme = k; $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
+    st.theme = k; st.tpl = "base";
+    $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
+  });
+  if($("#ppt-tplauto")) $("#ppt-tplauto").onclick = () => { st.tpl = "auto"; sync(); };
+  if($("#ppt-tpls")) $("#ppt-tpls").querySelectorAll("[data-tpl]").forEach(el=>el.onclick=()=>{
+    st.tpl = el.dataset.tpl;
+    if(st.tpl !== "base" && st.theme === "custom") st.theme = "warm";
+    sync();
   });
   $("#ppt-ref-file").onchange = e => { const f = e.target.files && e.target.files[0]; if(f) srLoad(f); e.target.value = ""; };
   $("#ppt-notes").onchange = e => { st.notes = e.target.checked; sync(); };
@@ -6258,7 +6560,7 @@ function pptAddPlan(st){
   data.plan = data.plan || [];
   const title = `${st.grade} · ${st.topic}（一键生成）`;
   if(data.plan.some(x=>x.title===title)) return false;
-  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / ${smPlan(st).length} 页 / ${(PPT_THEMES[st.theme]||PPT_THEMES.warm).nm}配色 / PPTX 已生成`, mood:"待上", date:isoToday() });
+  data.plan.unshift({ id:Date.now(), title, content:`${st.minutes} 分钟 / ${smPlan(st).length} 页 / ${smTplNm(st)} / PPTX 已生成`, mood:"待上", date:isoToday() });
   store.save();
   return true;
 }
