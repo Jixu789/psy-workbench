@@ -386,14 +386,6 @@
     color:var(--text-secondary); font-size:12.5px; cursor:pointer; transition:all .12s; }
   .ppt-chip:hover { color:var(--text); border-color:var(--text-tertiary); }
   .ppt-chip.on { background:var(--accent-muted); border-color:var(--accent); color:var(--text); font-weight:700; }
-  .ppt-swatch { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
-  .ppt-sw { display:flex; flex-direction:column; border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px 10px; cursor:pointer; transition:all .12s; text-align:left; }
-  .ppt-sw .bar { height:22px; border-radius:7px; margin-bottom:8px; border:1px solid rgba(0,0,0,.06); flex:0 0 auto; }
-  .ppt-sw .nm { font-size:12.5px; font-weight:700; line-height:1.3; }
-  .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:3px; line-height:1.45; }
-  .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
-  .ppt-swatch.dim .ppt-sw { opacity:.45; }
-  .ppt-swatch.dim .ppt-sw:hover { opacity:.8; }
   /* 模板选择：一条 AI 匹配 + 一个「打开模板库」入口 */
   .ppt-tplauto { border:1.5px solid var(--border-input); border-radius:12px; padding:9px 11px 10px; cursor:pointer; transition:all .12s; background:var(--surface-nested); }
   .ppt-tplauto .row { display:flex; align-items:center; gap:8px; }
@@ -466,7 +458,6 @@
     .ppt-tlib { max-height:92vh; border-radius:13px; }
     .ppt-tlibgrid { grid-template-columns:1fr; padding:10px 12px 14px; gap:10px; }
   }
-  .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
   .ppt-ainote { font-size:12px; color:var(--text-secondary); margin-top:10px; line-height:1.6; }
   .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
   .ai-presets { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; }
@@ -480,8 +471,6 @@
   }
   .ppt-ainote .sep { opacity:.3; margin:0 7px; }
   #ai-state:empty { display:none; }
-  .ppt-ref.empty .bar { border-style:dashed; }
-  .ppt-ref.busy { opacity:.5; pointer-events:none; }
   .ppt-outline { counter-reset:step; display:flex; flex-direction:column; }
   .ppt-line { display:flex; gap:10px; align-items:center; padding:6px 2px; border-bottom:1px dashed var(--border); font-size:12.5px; color:var(--text-secondary); }
   .ppt-line:last-child { border-bottom:none; }
@@ -1896,124 +1885,6 @@ function pptMetaText(st){
   const styleNm = st.style === "smart" ? "智能版式" : "海报卡片";
   return smPlan(st).length + " 页 · 16:9 · " + styleNm + " · " + smTplNm(st) + " · " + (st.notes ? "含讲师备注" : "不含备注");
 }
-
-/* ---------- 风格参考：从上传的封面图里取色，生成一套配色 ---------- */
-function srRgb2hsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-  let h = 0;
-  if (d > 0) {
-    if (mx === r) h = ((g - b) / d) % 6;
-    else if (mx === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  const l = (mx + mn) / 2;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  return { h, s, l };
-}
-function srHsl2hex(h, s, l) {
-  h = ((h % 360) + 360) % 360;
-  s = Math.max(0, Math.min(1, s));
-  l = Math.max(0, Math.min(1, l));
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-  let r = 0, g = 0, b = 0;
-  if (h < 60) { r = c; g = x; }
-  else if (h < 120) { r = x; g = c; }
-  else if (h < 180) { g = c; b = x; }
-  else if (h < 240) { g = x; b = c; }
-  else if (h < 300) { r = x; b = c; }
-  else { r = c; b = x; }
-  const t = v => Math.round((v + m) * 255).toString(16).padStart(2, "0").toUpperCase();
-  return t(r) + t(g) + t(b);
-}
-/* 把图片缩到 96×96 统计色相分布：按 10° 分桶，用饱和度×中性亮度做权重 */
-function srPalette(img) {
-  const N = 96;
-  const cv = document.createElement("canvas");
-  cv.width = N; cv.height = N;
-  const cx = cv.getContext("2d");
-  cx.drawImage(img, 0, 0, N, N);
-  const px = cx.getImageData(0, 0, N, N).data;
-  const bins = [];
-  for (let i = 0; i < px.length; i += 4) {
-    if (px[i + 3] < 128) continue;
-    const c = srRgb2hsl(px[i], px[i + 1], px[i + 2]);
-    if (c.l > 0.96 || c.l < 0.06 || c.s < 0.12) continue;   /* 跳过纯白、纯黑、灰 */
-    const k = Math.floor(c.h / 10);
-    const w = c.s * (1 - Math.abs(c.l - 0.5)) + 0.001;
-    const o = bins[k] || (bins[k] = { w: 0, x: 0, y: 0 });
-    o.w += w;
-    o.x += Math.cos(c.h * Math.PI / 180) * w;
-    o.y += Math.sin(c.h * Math.PI / 180) * w;
-  }
-  const list = bins.filter(Boolean).sort((a, b) => b.w - a.w);
-  if (!list.length) return null;
-  const hueOf = o => ((Math.atan2(o.y, o.x) * 180 / Math.PI) + 360) % 360;
-  const h1 = hueOf(list[0]);
-  let h2 = h1 + 45;
-  for (let i = 1; i < list.length; i++) {
-    const hh = hueOf(list[i]);
-    const dd = Math.abs(((hh - h1 + 540) % 360) - 180);
-    if (dd >= 50) { h2 = hh; break; }
-  }
-  return {
-    bg: srHsl2hex(h1, 0.46, 0.965),
-    deep: srHsl2hex(h1, 0.56, 0.09),
-    card: "FFFFFF",
-    ink: srHsl2hex(h1, 0.32, 0.14),
-    ink2: srHsl2hex(h1, 0.18, 0.42),
-    accent: srHsl2hex(h1, 0.74, 0.47),
-    accent2: srHsl2hex(h2, 0.80, 0.62),
-    soft: srHsl2hex(h1, 0.52, 0.90),
-    line: srHsl2hex(h1, 0.38, 0.87),
-    on: "FFFFFF",
-  };
-}
-function srThumb(img) {
-  const w = 128, h = Math.max(1, Math.round(128 * img.height / (img.width || 1)));
-  const cv = document.createElement("canvas");
-  cv.width = w; cv.height = h;
-  cv.getContext("2d").drawImage(img, 0, 0, w, h);
-  return cv.toDataURL("image/jpeg", 0.72);
-}
-/* 把上次保存的参考配色写回 PPT_THEMES.custom；没有就删掉这个键 */
-function srApply() {
-  const ref = data.__pptStyleRef;
-  if (!ref || !ref.palette) { delete PPT_THEMES.custom; return false; }
-  PPT_THEMES.custom = Object.assign({ nm: "参考图" }, ref.palette);
-  return true;
-}
-function srLoad(file) {
-  const card = document.querySelector(".ppt-ref");
-  if (!/^image\//.test(file.type || "")) {
-    alert("请上传图片文件（jpg / png / webp）");
-    return;
-  }
-  if (card) card.classList.add("busy");
-  const done = () => { if (card) card.classList.remove("busy"); };
-  const fr = new FileReader();
-  fr.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
-  fr.onload = () => {
-    const img = new Image();
-    img.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
-    img.onload = () => {
-      const pal = srPalette(img);
-      if (!pal) { done(); alert("这张图颜色太少，换一张有颜色的封面图试试"); return; }
-      data.__pptStyleRef = { palette: pal, thumb: srThumb(img) };
-      srApply();
-      pptState().theme = "custom";
-      store.save();
-      render();
-    };
-    img.src = fr.result;
-  };
-  fr.readAsDataURL(file);
-}
-srApply();
 
 
 const PPT_TOPICS = {
@@ -3978,10 +3849,6 @@ async function smOcrFiles(files, st){
   const out = [];
   for(let i = 0; i < files.length; i++){
     const r = await smImgFile(files[i], 1400);
-    if(i === 0){
-      const pal = srPalette(r.img);
-      if(pal){ data.__pptStyleRef = { palette:pal, thumb:srThumb(r.img) }; srApply(); st.theme = "custom"; store.save(); }
-    }
     const url = llmUrl();
     const body = { model:model, temperature:0.1, messages:[
       { role:"system", content:"你是教材文字识别助手。只转录图片中真实存在的文字，不补充、不推测；看不清处写「（此处模糊）」。按 课程标题/教学目标/重点/难点/教学过程/课堂活动/案例/小结/作业 分段输出，保留原文用词。" },
@@ -4072,6 +3939,7 @@ function pptState(){
   if(!data.__ppt.style) data.__ppt.style = "smart";
   if(typeof data.__ppt.tpl !== "string") data.__ppt.tpl = "auto";
   if(data.__ppt.tpl !== "auto" && data.__ppt.tpl !== "base" && !smTplById(data.__ppt.tpl)) data.__ppt.tpl = "auto";
+  if(!PPT_THEMES[data.__ppt.theme]) data.__ppt.theme = "warm";
   if(typeof data.__ppt.req !== "string") data.__ppt.req = "";
   if(typeof data.__ppt.plan !== "string") data.__ppt.plan = "";
   if(typeof data.__ppt.warm !== "string") data.__ppt.warm = "";
@@ -4971,13 +4839,6 @@ async function mxOcrOne(m, st){
   if(!url) throw new Error("未配置接口地址");
   const model = (PPT_LLM.vmodel || PPT_LLM.model || "").trim();
   if(!model) throw new Error("未配置视觉模型");
-  if(m.thumb && MX_MATS.findIndex(x => x.kind === "img") === MX_MATS.indexOf(m)){
-    const im = await mxThumbImage(m.thumb);
-    if(im){
-      const pal = srPalette(im);
-      if(pal){ data.__pptStyleRef = { palette:pal, thumb:srThumb(im) }; srApply(); st.theme = "custom"; store.save(); }
-    }
-  }
   const body = { model:model, temperature:0.1, messages:[
     { role:"system", content:"你是教材文字识别助手。只转录图片中真实存在的文字，不补充、不推测；看不清处写「（此处模糊）」。按 课程标题/教学目标/重点/难点/教学过程/课堂活动/案例/小结/作业 分段输出，保留原文用词。" },
     { role:"user", content:[
@@ -6594,23 +6455,8 @@ function renderPpt(){
     `<div class="ppt-chip ${k===st.topic?"on":""}" data-topic="${attr(k)}">${esc(k)}</div>`).join("");
   const segHTML = (arr, cur, cls) => arr.map(v=>
     `<div class="opt ${String(v)===String(cur)?"on":""}" data-v="${attr(String(v))}">${esc(String(v))}</div>`).join("");
-  const swBase = ["warm","mint","night"].map(k=>{
-    const t=PPT_THEMES[k];
-    return `<div class="ppt-sw ${k===st.theme?"on":""}" data-theme="${k}">
-      <div class="bar" style="background:linear-gradient(90deg,#${t.bg} 0%,#${t.soft} 55%,#${t.accent} 100%)"></div>
-      <div class="nm">${esc(t.nm)}</div><div class="dsc">${k==="warm"?"暖米底 · 适合日常":k==="mint"?"浅绿底 · 适合成长主题":"深蓝底 · 适合晚课"}</div></div>`;
-  }).join("");
-  const ref = (data.__pptStyleRef && data.__pptStyleRef.thumb) ? data.__pptStyleRef : null;
-  const swHTML = swBase + `<div class="ppt-sw ppt-ref ${ref?"":"empty"} ${st.theme==="custom"?"on":""}" data-theme="custom">
-      <div class="bar" style="${ref
-        ? "background-image:url('" + ref.thumb + "');background-size:cover;background-position:center"
-        : "background:repeating-linear-gradient(45deg,#E9E3DA 0 6px,#F6F2EA 6px 12px)"}"></div>
-      <div class="nm">参考图</div>
-      <div class="dsc">${ref?'点此使用 · <span class="up" data-ref="again">换一张</span>':'<span class="up" data-ref="pick">上传封面取色</span>'}</div>
-    </div><input type="file" id="ppt-ref-file" accept="image/*" hidden />`;
   const TR = smTpl(st);
   const tplAutoOn = st.theme !== "custom" && !TR.base && !!TR.auto;
-  const tplMode = st.theme !== "custom" && !TR.base;
   /* ---------- 模板库 ----------
      按钮只显示「当前用的是哪套 + 版式描述」；真实缩略图放进弹层，首次打开才渲染，
      每套用当前主题实排 3 页（封面 / 目录 / 卡片），所以看到的是版式与元素，不只是配色。 */
@@ -6721,10 +6567,6 @@ function renderPpt(){
               <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="mx-mini">课件页数</span><input id="ppt-pages" type="number" min="10" max="18" value="${st.pageN||15}" style="width:64px;border:1px solid #E2DBCE;border-radius:7px;padding:4px 6px;font-size:12px"/><span class="mx-mini">页（10–18）</span></div>
             </div>
             <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${(st.style||"smart")==="smart"?"on":""}" data-v="smart">智能版式</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
-          </div>
-          <div class="field"><label>配色 <span class="en">COLOR</span></label>
-            <div class="ppt-swatch ${tplMode?"dim":""}" id="ppt-theme">${swHTML}</div>
-            <div class="ppt-ainote">选了模板后配色、字体与版式几何全部由模板接管；点任意配色卡即切回「基础配色」，可再单独调色。</div>
           </div>
           <div class="field"><label>模板 <span class="en">TEMPLATE</span></label>
             <div class="ppt-tplauto ${tplAutoOn?"on":""}" id="ppt-tplauto">
@@ -6868,15 +6710,13 @@ function renderPpt(){
     $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
     $("#ppt-meta").textContent = pptMetaText(st);
-    const R2 = smTpl(st), md = st.theme !== "custom" && !R2.base;
+    const R2 = smTpl(st);
     if($("#ppt-tplnote")) $("#ppt-tplnote").textContent = smTplNote(st);
     if($("#ppt-tplauto")) $("#ppt-tplauto").classList.toggle("on", st.theme !== "custom" && !!R2.auto);
     if($("#ppt-tlib-cur")) $("#ppt-tlib-cur").textContent = tlibName(R2);
     if($("#ppt-tlib-desc")) $("#ppt-tlib-desc").textContent = tlibSub(R2);
     if($("#ppt-tlib-sw")) $("#ppt-tlib-sw").style.background = tlibSw(R2);
     tlibMark();
-    if($("#ppt-theme")) $("#ppt-theme").classList.toggle("dim", md);
-    if($("#ppt-theme")) $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o.dataset.theme === st.theme));
     if($("#ppt-style")) $("#ppt-style").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o.dataset.v === (st.style||"smart")));
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     if($("#llm-state")) llmPaint();
@@ -6904,15 +6744,6 @@ function renderPpt(){
   $("#ppt-style").querySelectorAll(".opt").forEach(el=>el.onclick=()=>{
     st.style = el.dataset.v; $("#ppt-style").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o===el)); sync();
   });
-  $("#ppt-theme").querySelectorAll("[data-theme]").forEach(el=>el.onclick=e=>{
-    const k = el.dataset.theme;
-    if(k==="custom"){
-      const r = data.__pptStyleRef;
-      if(!r || !r.palette || (e.target.closest && e.target.closest("[data-ref='again']"))){ $("#ppt-ref-file").click(); return; }
-    }
-    st.theme = k; st.tpl = "base";
-    $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
-  });
   if($("#ppt-tplauto")) $("#ppt-tplauto").onclick = () => { st.tpl = "auto"; sync(); };
   if($("#ppt-tlib-open")) $("#ppt-tlib-open").onclick = () => tlibOpen();
   if($("#ppt-tlib-x")) $("#ppt-tlib-x").onclick = () => tlibClose();
@@ -6933,7 +6764,6 @@ function renderPpt(){
     sync();
     tlibClose();
   });
-  $("#ppt-ref-file").onchange = e => { const f = e.target.files && e.target.files[0]; if(f) srLoad(f); e.target.value = ""; };
   $("#ppt-notes").onchange = e => { st.notes = e.target.checked; sync(); };
   $("#ppt-toplan").onchange = e => { st.toPlan = e.target.checked; store.save(); };
   if($("#ppt-req")) $("#ppt-req").addEventListener("input", e => { st.req = e.target.value; store.save(); });
@@ -7080,7 +6910,6 @@ function renderPpt(){
   });
   mxBindPpt(st);
 }
-
 
 
 function pptAddPlan(st){
