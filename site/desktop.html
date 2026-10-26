@@ -386,14 +386,6 @@
     color:var(--text-secondary); font-size:12.5px; cursor:pointer; transition:all .12s; }
   .ppt-chip:hover { color:var(--text); border-color:var(--text-tertiary); }
   .ppt-chip.on { background:var(--accent-muted); border-color:var(--accent); color:var(--text); font-weight:700; }
-  .ppt-swatch { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
-  .ppt-sw { display:flex; flex-direction:column; border:1.5px solid var(--border-input); border-radius:12px; padding:9px 10px 10px; cursor:pointer; transition:all .12s; text-align:left; }
-  .ppt-sw .bar { height:22px; border-radius:7px; margin-bottom:8px; border:1px solid rgba(0,0,0,.06); flex:0 0 auto; }
-  .ppt-sw .nm { font-size:12.5px; font-weight:700; line-height:1.3; }
-  .ppt-sw .dsc { font-size:10.5px; color:var(--text-tertiary); margin-top:3px; line-height:1.45; }
-  .ppt-sw.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-muted); }
-  .ppt-swatch.dim .ppt-sw { opacity:.45; }
-  .ppt-swatch.dim .ppt-sw:hover { opacity:.8; }
   /* 模板选择：一条 AI 匹配 + 一个「打开模板库」入口 */
   .ppt-tplauto { border:1.5px solid var(--border-input); border-radius:12px; padding:9px 11px 10px; cursor:pointer; transition:all .12s; background:var(--surface-nested); }
   .ppt-tplauto .row { display:flex; align-items:center; gap:8px; }
@@ -466,7 +458,6 @@
     .ppt-tlib { max-height:92vh; border-radius:13px; }
     .ppt-tlibgrid { grid-template-columns:1fr; padding:10px 12px 14px; gap:10px; }
   }
-  .ppt-ref .up { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:2px; }
   .ppt-ainote { font-size:12px; color:var(--text-secondary); margin-top:10px; line-height:1.6; }
   .ppt-ainote .up { color:var(--accent); font-weight:700; cursor:pointer; text-decoration:underline; text-underline-offset:2px; white-space:nowrap; }
   .ai-presets { display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 8px; }
@@ -480,8 +471,6 @@
   }
   .ppt-ainote .sep { opacity:.3; margin:0 7px; }
   #ai-state:empty { display:none; }
-  .ppt-ref.empty .bar { border-style:dashed; }
-  .ppt-ref.busy { opacity:.5; pointer-events:none; }
   .ppt-outline { counter-reset:step; display:flex; flex-direction:column; }
   .ppt-line { display:flex; gap:10px; align-items:center; padding:6px 2px; border-bottom:1px dashed var(--border); font-size:12.5px; color:var(--text-secondary); }
   .ppt-line:last-child { border-bottom:none; }
@@ -1896,124 +1885,6 @@ function pptMetaText(st){
   const styleNm = st.style === "smart" ? "智能版式" : "海报卡片";
   return smPlan(st).length + " 页 · 16:9 · " + styleNm + " · " + smTplNm(st) + " · " + (st.notes ? "含讲师备注" : "不含备注");
 }
-
-/* ---------- 风格参考：从上传的封面图里取色，生成一套配色 ---------- */
-function srRgb2hsl(r, g, b) {
-  r /= 255; g /= 255; b /= 255;
-  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
-  let h = 0;
-  if (d > 0) {
-    if (mx === r) h = ((g - b) / d) % 6;
-    else if (mx === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-  const l = (mx + mn) / 2;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  return { h, s, l };
-}
-function srHsl2hex(h, s, l) {
-  h = ((h % 360) + 360) % 360;
-  s = Math.max(0, Math.min(1, s));
-  l = Math.max(0, Math.min(1, l));
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
-  const m = l - c / 2;
-  let r = 0, g = 0, b = 0;
-  if (h < 60) { r = c; g = x; }
-  else if (h < 120) { r = x; g = c; }
-  else if (h < 180) { g = c; b = x; }
-  else if (h < 240) { g = x; b = c; }
-  else if (h < 300) { r = x; b = c; }
-  else { r = c; b = x; }
-  const t = v => Math.round((v + m) * 255).toString(16).padStart(2, "0").toUpperCase();
-  return t(r) + t(g) + t(b);
-}
-/* 把图片缩到 96×96 统计色相分布：按 10° 分桶，用饱和度×中性亮度做权重 */
-function srPalette(img) {
-  const N = 96;
-  const cv = document.createElement("canvas");
-  cv.width = N; cv.height = N;
-  const cx = cv.getContext("2d");
-  cx.drawImage(img, 0, 0, N, N);
-  const px = cx.getImageData(0, 0, N, N).data;
-  const bins = [];
-  for (let i = 0; i < px.length; i += 4) {
-    if (px[i + 3] < 128) continue;
-    const c = srRgb2hsl(px[i], px[i + 1], px[i + 2]);
-    if (c.l > 0.96 || c.l < 0.06 || c.s < 0.12) continue;   /* 跳过纯白、纯黑、灰 */
-    const k = Math.floor(c.h / 10);
-    const w = c.s * (1 - Math.abs(c.l - 0.5)) + 0.001;
-    const o = bins[k] || (bins[k] = { w: 0, x: 0, y: 0 });
-    o.w += w;
-    o.x += Math.cos(c.h * Math.PI / 180) * w;
-    o.y += Math.sin(c.h * Math.PI / 180) * w;
-  }
-  const list = bins.filter(Boolean).sort((a, b) => b.w - a.w);
-  if (!list.length) return null;
-  const hueOf = o => ((Math.atan2(o.y, o.x) * 180 / Math.PI) + 360) % 360;
-  const h1 = hueOf(list[0]);
-  let h2 = h1 + 45;
-  for (let i = 1; i < list.length; i++) {
-    const hh = hueOf(list[i]);
-    const dd = Math.abs(((hh - h1 + 540) % 360) - 180);
-    if (dd >= 50) { h2 = hh; break; }
-  }
-  return {
-    bg: srHsl2hex(h1, 0.46, 0.965),
-    deep: srHsl2hex(h1, 0.56, 0.09),
-    card: "FFFFFF",
-    ink: srHsl2hex(h1, 0.32, 0.14),
-    ink2: srHsl2hex(h1, 0.18, 0.42),
-    accent: srHsl2hex(h1, 0.74, 0.47),
-    accent2: srHsl2hex(h2, 0.80, 0.62),
-    soft: srHsl2hex(h1, 0.52, 0.90),
-    line: srHsl2hex(h1, 0.38, 0.87),
-    on: "FFFFFF",
-  };
-}
-function srThumb(img) {
-  const w = 128, h = Math.max(1, Math.round(128 * img.height / (img.width || 1)));
-  const cv = document.createElement("canvas");
-  cv.width = w; cv.height = h;
-  cv.getContext("2d").drawImage(img, 0, 0, w, h);
-  return cv.toDataURL("image/jpeg", 0.72);
-}
-/* 把上次保存的参考配色写回 PPT_THEMES.custom；没有就删掉这个键 */
-function srApply() {
-  const ref = data.__pptStyleRef;
-  if (!ref || !ref.palette) { delete PPT_THEMES.custom; return false; }
-  PPT_THEMES.custom = Object.assign({ nm: "参考图" }, ref.palette);
-  return true;
-}
-function srLoad(file) {
-  const card = document.querySelector(".ppt-ref");
-  if (!/^image\//.test(file.type || "")) {
-    alert("请上传图片文件（jpg / png / webp）");
-    return;
-  }
-  if (card) card.classList.add("busy");
-  const done = () => { if (card) card.classList.remove("busy"); };
-  const fr = new FileReader();
-  fr.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
-  fr.onload = () => {
-    const img = new Image();
-    img.onerror = () => { done(); alert("图片读取失败，换一张试试"); };
-    img.onload = () => {
-      const pal = srPalette(img);
-      if (!pal) { done(); alert("这张图颜色太少，换一张有颜色的封面图试试"); return; }
-      data.__pptStyleRef = { palette: pal, thumb: srThumb(img) };
-      srApply();
-      pptState().theme = "custom";
-      store.save();
-      render();
-    };
-    img.src = fr.result;
-  };
-  fr.readAsDataURL(file);
-}
-srApply();
 
 
 const PPT_TOPICS = {
@@ -3978,10 +3849,6 @@ async function smOcrFiles(files, st){
   const out = [];
   for(let i = 0; i < files.length; i++){
     const r = await smImgFile(files[i], 1400);
-    if(i === 0){
-      const pal = srPalette(r.img);
-      if(pal){ data.__pptStyleRef = { palette:pal, thumb:srThumb(r.img) }; srApply(); st.theme = "custom"; store.save(); }
-    }
     const url = llmUrl();
     const body = { model:model, temperature:0.1, messages:[
       { role:"system", content:"你是教材文字识别助手。只转录图片中真实存在的文字，不补充、不推测；看不清处写「（此处模糊）」。按 课程标题/教学目标/重点/难点/教学过程/课堂活动/案例/小结/作业 分段输出，保留原文用词。" },
@@ -4072,6 +3939,7 @@ function pptState(){
   if(!data.__ppt.style) data.__ppt.style = "smart";
   if(typeof data.__ppt.tpl !== "string") data.__ppt.tpl = "auto";
   if(data.__ppt.tpl !== "auto" && data.__ppt.tpl !== "base" && !smTplById(data.__ppt.tpl)) data.__ppt.tpl = "auto";
+  if(!PPT_THEMES[data.__ppt.theme]) data.__ppt.theme = "warm";
   if(typeof data.__ppt.req !== "string") data.__ppt.req = "";
   if(typeof data.__ppt.plan !== "string") data.__ppt.plan = "";
   if(typeof data.__ppt.warm !== "string") data.__ppt.warm = "";
@@ -4105,8 +3973,12 @@ function pptOutline(st){
   ];
 }
 
-function pptOutlineHTML(html){
-  return html.map(t=>`<div class="ppt-line"><i></i><span>${esc(t)}</span></div>`).join("");
+function pptOutlineHTML(html, roles){
+  /* roles 为空时保持原样；锁定真模板时每行前面标出「P3 章节 · 」，让用户看到这页在模板里承担什么 */
+  return html.map((t, i) => {
+    const r = (roles && roles[i]) ? "P" + (i + 1) + " " + (TPL_ROLE_NM[roles[i]] || "内容") + " · " : "";
+    return `<div class="ppt-line"><i></i><span>${esc(r + t)}</span></div>`;
+  }).join("");
 }
 
 /* ============================================================
@@ -4971,13 +4843,6 @@ async function mxOcrOne(m, st){
   if(!url) throw new Error("未配置接口地址");
   const model = (PPT_LLM.vmodel || PPT_LLM.model || "").trim();
   if(!model) throw new Error("未配置视觉模型");
-  if(m.thumb && MX_MATS.findIndex(x => x.kind === "img") === MX_MATS.indexOf(m)){
-    const im = await mxThumbImage(m.thumb);
-    if(im){
-      const pal = srPalette(im);
-      if(pal){ data.__pptStyleRef = { palette:pal, thumb:srThumb(im) }; srApply(); st.theme = "custom"; store.save(); }
-    }
-  }
   const body = { model:model, temperature:0.1, messages:[
     { role:"system", content:"你是教材文字识别助手。只转录图片中真实存在的文字，不补充、不推测；看不清处写「（此处模糊）」。按 课程标题/教学目标/重点/难点/教学过程/课堂活动/案例/小结/作业 分段输出，保留原文用词。" },
     { role:"user", content:[
@@ -5594,7 +5459,10 @@ function mxLog(msg){
 
 /* ---------- 课时页数自适应（按设置页数增删内容页） ---------- */
 function mxFitPages(st, pages){
-  const want = Math.max(10, Math.min(18, st.pageN || 15));
+  return mxFitPagesN(st, pages, Math.max(10, Math.min(18, st.pageN || 15)));
+}
+function mxFitPagesN(st, pages, want0){
+  const want = Math.max(8, Math.min(24, want0 || 15));
   const fixed = ["cover","support","teacher","end"];
   const arr = pages.slice();
   while(arr.length > want){
@@ -5654,7 +5522,9 @@ function mxApplyMatText(st, text){
 
 /* ---------- AI：按资料 + 活动库生成课堂大纲 ---------- */
 function mxLessonPrompt(st, warm){
-  const pages = Math.max(10, Math.min(18, st.pageN || 15));
+  const T = (st.tpl && st.tpl !== "auto" && st.tpl !== "base") ? smTplById(st.tpl) : null;
+  const roles = T ? tplRoles(T.id) : null;
+  const pages = roles ? roles.length : Math.max(10, Math.min(18, st.pageN || 15));
   const txt = String(st.plan || "").trim().slice(0, 9000);
   const w = warm ? warm.it : null;
   const wm = warm ? ("【选定热身活动（来自活动库，必须采用并写进课堂热身页）】\n名称：" + w.name +
@@ -5667,7 +5537,7 @@ function mxLessonPrompt(st, warm){
     "你是一名中小学心理课件设计师。请把下面这节课编排成 " + pages + " 页可直接授课的课件。",
     "【硬性规则】",
     "1. 只使用【教案原文】里的信息；教案没写的内容不要编造，缺项可按常规补通用目标，但不能改写教材原意。",
-    "2. 第一页 cover，最后一页 end；必须有 1 页 support（求助资源，号码固定 12356 / 12355 / 110 / 120）与 1 页 teacher（环节与分钟分配）。",
+    "2. " + (roles ? tplHint(roles) : "第一页 cover，最后一页 end；必须有 1 页 support（求助资源，号码固定 12356 / 12355 / 110 / 120）与 1 页 teacher（环节与分钟分配）。"),
     "3. 课堂流程按教材与课时动态安排，不要求每节课都一样的环节；但如果是标准 40 分钟，可参考：情境导入 → 热身 → 主题引入 → 核心讲解 → 互动体验 → 讨论反思 → 总结与行动。",
     "4. 每页给出：type 版式、kick 英文小标、title 标题、sub 副标题、items 要点、note 教师引导语/备注。",
     "5. 版式只能取：cover / agenda / questions / statement / visual / columns / process / timeline / quote / checklist / pulse / stats / cards / support / teacher / end。",
@@ -6198,11 +6068,12 @@ function mxRefreshPpt(st){
   if($("#ppt-matstate")) $("#ppt-matstate").textContent = mxMatStats();
   if($("#ppt-warmlib")) $("#ppt-warmlib").innerHTML = mxWarmPanelHTML(st);
   if($("#ppt-imglib")) $("#ppt-imglib").innerHTML = mxLibPanelHTML(st);
-  if($("#ppt-outline")) $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
+  if($("#ppt-outline")) $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st), tplRoleTags(st));
   if($("#pv-grid")) $("#pv-grid").innerHTML = pvGridHTML(st);
   if($("#ppt-meta")) $("#ppt-meta").textContent = pptMetaText(st);
   if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(mxQaPages(st, smPlan(st)));
-  if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + smPlan(st).length + " 页 · 生成后还会检查文件本身";
+  const _rt = tplRoleTags(st);
+  if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + (_rt ? _rt.length : smPlan(st).length) + " 页 · 生成后还会检查文件本身";
   planPaintSafe(st);
   store.save();
 }
@@ -6265,6 +6136,671 @@ function mxApplyWarmToPages(st, pages, pick, aiReason){
   pg.note = smCut2("选《" + it.name + "》：" + reason + (it.notes ? "；注意：" + it.notes : ""), 90);
   return true;
 }
+/* ================= 真模板填充：模板原件页角色表 =================
+   drop = 从尾部摘除的页数；roles = 可用页的角色序列（长度 = 可用页数）
+   cover 封面 / agenda 目录 / section 章节 / content 内容 / end 结束 */
+const TPL_PAGES = {
+  t3 : { drop:1, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t4 : { drop:1, roles:["cover","agenda","section","content","content","content","section","content","content","content","section","content","content","content"] },
+  t5 : { drop:1, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t6 : { drop:0, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t7 : { drop:0, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t8 : { drop:2, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t9 : { drop:4, roles:["cover","agenda","section","content","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t10: { drop:0, roles:["cover","agenda","section","content","content","section","content","content","section","content","content","section","content","content","end"] },
+  t11: { drop:0, roles:["cover","agenda","section","content","content","section","content","content","content","content","section","content","content","section","content","content","end"] },
+  d1 : { drop:0, roles:["cover","agenda","section","content","content","content","section","content","content","section","content","content","content","section","content","content","content","end"] },
+  dp : { drop:0, roles:["cover","agenda","section","content","content","content","section","content","content","content","section","content","content","content","section","content","content","content","content","end"] }
+};
+const TPL_USABLE = id => ((TPL_PAGES[id] && TPL_PAGES[id].roles.length) || 15);
+/* 模板原件缓存：IndexedDB 库 psy-tpl-v1 / 表 files / 主键 id */
+const TPL_DB = "psy-tpl-v1";
+function tplDbOpen(){
+  return new Promise((res, rej) => {
+    if(!window.indexedDB) return rej(new Error("浏览器不支持 IndexedDB"));
+    const rq = indexedDB.open(TPL_DB, 1);
+    rq.onupgradeneeded = () => {
+      const db = rq.result;
+      if(!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath:"id" });
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error || new Error("IndexedDB 打开失败"));
+  });
+}
+async function tplCacheGet(id){
+  try{
+    const db = await tplDbOpen();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction("files", "readonly");
+      const rq = tx.objectStore("files").get(id);
+      rq.onsuccess = () => { const v = rq.result; res(v && v.buf && v.buf.length ? v : null); };
+      rq.onerror = () => rej(rq.error);
+    });
+  }catch(e){ return null; }
+}
+async function tplCachePut(id, buf, file){
+  try{
+    const db = await tplDbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction("files", "readwrite");
+      tx.objectStore("files").put({ id:id, buf:buf, file:file || "", at:Date.now(), size:buf.length });
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    return true;
+  }catch(e){ return false; }
+}
+function tplPickFile(T, say){
+  return new Promise(res => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = ".pptx";
+    inp.style.display = "none";
+    document.body.appendChild(inp);
+    inp.onchange = async () => {
+      const f = inp.files && inp.files[0];
+      try{ document.body.removeChild(inp); }catch(e){}
+      if(!f) return res(null);
+      if(!/\.pptx$/i.test(f.name)){ say("请选择 .pptx 模板文件"); return res(null); }
+      if(f.name !== T.file) say("注意：所选文件名与「" + T.file + "」不一致，仍按当前模板填充");
+      const buf = new Uint8Array(await f.arrayBuffer());
+      await tplCachePut(T.id, buf, f.name);
+      say("已读取本地模板 · " + (buf.length / 1048576).toFixed(1) + " MB（已缓存）");
+      res(buf);
+    };
+    say("请选择 模板库/" + T.file);
+    inp.click();
+  });
+}
+async function tplFetch(T, onMsg){
+  const say = m => { try{ onMsg && onMsg(m); }catch(e){} };
+  const hit = await tplCacheGet(T.id);
+  if(hit){
+    say("模板命中本地缓存 · " + (hit.size / 1048576).toFixed(1) + " MB");
+    return hit.buf instanceof Uint8Array ? hit.buf : new Uint8Array(hit.buf);
+  }
+  const url = TPL_DIR + T.file;
+  try{
+    say("正在下载模板 " + T.file + " · 0%");
+    const rsp = await fetch(url);
+    if(!rsp.ok) throw new Error("HTTP " + rsp.status);
+    const total = Number(rsp.headers.get("content-length") || 0);
+    let buf;
+    if(rsp.body && rsp.body.getReader){
+      const rd = rsp.body.getReader();
+      const chunks = [];
+      let got = 0, lastPct = -1;
+      for(;;){
+        const r = await rd.read();
+        if(r.done) break;
+        chunks.push(r.value);
+        got += r.value.length;
+        const pct = total ? Math.floor(got * 100 / total) : -1;
+        if(pct >= 0 && pct !== lastPct && (pct % 5 === 0 || pct === 100)){
+          lastPct = pct;
+          say("正在下载模板 " + (total / 1048576).toFixed(1) + " MB · " + pct + "%");
+        }
+      }
+      buf = new Uint8Array(got);
+      let off = 0;
+      for(const c of chunks){ buf.set(c, off); off += c.length; }
+    }else{
+      buf = new Uint8Array(await rsp.arrayBuffer());
+    }
+    if(buf.length < 20000) throw new Error("模板文件过小，可能不是有效 pptx");
+    await tplCachePut(T.id, buf, T.file);
+    say("模板已下载并缓存 · " + (buf.length / 1048576).toFixed(1) + " MB");
+    return buf;
+  }catch(e){
+    say("在线获取失败（" + ((e && e.message) || e) + "），请手动选择模板原件");
+    return await tplPickFile(T, say);
+  }
+}
+/* ================= 真模板填充：解析模板每页的文字槽 ================= */
+function tplUnesc(s){
+  return String(s || "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"").replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (m, d) => String.fromCharCode(Number(d)))
+    .replace(/&amp;/g, "&");
+}
+function tplTxt(blk){
+  let out = "", re = /<a:t>([\s\S]*?)<\/a:t>/g, m;
+  while((m = re.exec(blk))) out += m[1];
+  return tplUnesc(out);
+}
+function tplParaSz(p){
+  let m = /<a:rPr[^>]*\ssz="(\d+)"/.exec(p);
+  if(m) return Number(m[1]);
+  m = /<a:defRPr[^>]*\ssz="(\d+)"/.exec(p);
+  if(m) return Number(m[1]);
+  m = /<a:endParaRPr[^>]*\ssz="(\d+)"/.exec(p);
+  if(m) return Number(m[1]);
+  return 1800;
+}
+function tplDeco(t){
+  return /^(\d{1,2}|PATR\s*\d+|PART\s*\d+|CHAPTER\s*\d+|第[一二三四五六七八九十]+[部章页])$/i.test(String(t || "").trim());
+}
+function tplCap(sz, cx, cy){
+  const em = sz / 100 * 12700;
+  const perLine = Math.max(6, Math.floor((cx || em * 20) / (em * 1.05)));
+  const lines = Math.max(1, Math.floor((cy || em * 2) / (em * 1.45)));
+  return Math.max(perLine * lines, 8);
+}
+/* 解析整份模板 → [{no, xml, title:{si,pi,sz,cx,cy,orig}, slots:[{si,pi,sz,cap,orig}]}] */
+async function tplParse(buf){
+  const raw = await mxUnzip(buf, ["ppt/slides/slide"]);
+  const S = raw
+    .filter(x => /^ppt\/slides\/slide\d+\.xml$/.test(x.name))
+    .map(x => ({ no:Number((/slide(\d+)\.xml$/.exec(x.name) || [])[1] || 0), xml:mxUtf8(x.data) }))
+    .sort((a, b) => a.no - b.no);
+  const pages = [];
+  for(const s of S){
+    const shapes = [];
+    const reSp = /<p:sp(?:\s[^>]*)?>([\s\S]*?)<\/p:sp>/g;
+    let m, si = 0;
+    while((m = reSp.exec(s.xml))){
+      const blk = m[1], i = si++;
+      const tx = /<p:txBody>([\s\S]*?)<\/p:txBody>/.exec(blk);
+      if(!tx) continue;
+      const use = [];
+      const reP = /<a:p>([\s\S]*?)<\/a:p>/g;
+      let pm, pi = 0;
+      while((pm = reP.exec(tx[1]))){
+        const t = tplTxt(pm[1]), k = pi++;
+        if(t.trim().length < 2 || tplDeco(t)) continue;
+        use.push({ pi:k, txt:t, sz:tplParaSz(pm[1]) });
+      }
+      if(!use.length) continue;
+      const ext = /<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/.exec(blk);
+      shapes.push({
+        si:i, paras:use,
+        sz:Math.max.apply(null, use.map(p => p.sz)),
+        cx:ext ? Number(ext[1]) : 0,
+        cy:ext ? Number(ext[2]) : 0
+      });
+    }
+    if(!shapes.length){ pages.push({ no:s.no, xml:s.xml, title:null, slots:[] }); continue; }
+    let ti = 0;
+    for(let k = 1; k < shapes.length; k++) if(shapes[k].sz > shapes[ti].sz) ti = k;
+    const T = shapes[ti], tp = T.paras[0];
+    const slots = [];
+    const push = (sh, p) => slots.push({ si:sh.si, pi:p.pi, sz:p.sz, cap:tplCap(p.sz, sh.cx, sh.cy), orig:p.txt });
+    shapes.forEach((sh, k) => { if(k !== ti) sh.paras.forEach(p => push(sh, p)); });
+    if(!slots.length) T.paras.slice(1).forEach(p => push(T, p));
+    pages.push({
+      no:s.no, xml:s.xml,
+      title:{ si:T.si, pi:tp.pi, sz:tp.sz, cx:T.cx, cy:T.cy, orig:tp.txt },
+      slots:slots
+    });
+  }
+  return pages;
+}
+/* 未知模板（用户自选文件）的页角色启发式 */
+function tplInferRoles(pages){
+  const n = pages.length;
+  return pages.map((p, i) => {
+    if(i === 0) return "cover";
+    if(i === n - 1) return "end";
+    const big = !!(p.title && p.title.sz >= 4000);
+    const few = (p.slots || []).length <= 6;
+    return (big && few) ? "section" : "content";
+  });
+}
+/* 模板可用页的角色表（去掉尾部说明页后） */
+function tplRoles(id){
+  const P = TPL_PAGES[id];
+  return (P && P.roles) ? P.roles.slice() : [];
+}
+/* 模板角色 → 中文短名（大纲预览标注用） */
+const TPL_ROLE_NM = { cover:"封面", agenda:"目录", section:"章节", content:"内容", end:"结束" };
+/* 当前是否锁定了某一套具体模板：是则返回它的角色表，否则 null（自动匹配 / 基础配色 / 参考图取色都不算） */
+function tplRoleTags(st){
+  const id = (st && st.tpl && st.tpl !== "auto" && st.tpl !== "base" && st.theme !== "custom") ? st.tpl : "";
+  return (id && TPL_PAGES[id]) ? TPL_PAGES[id].roles : null;
+}
+/* 提示词片段：第 k 页只能承担固定角色 */
+function tplHint(roles){
+  if(!roles || !roles.length) return "";
+  const nm = { cover:"封面", agenda:"目录", section:"章节", content:"内容", end:"结束" };
+  const list = roles.map((r, i) => "第" + (i + 1) + "页=" + (nm[r] || "内容")).join("、");
+  return "本次必须正好输出 " + roles.length + " 页，页码角色固定、不得增删页：" + list +
+    "。章节页只给一句话标题（≤ 12 字），不要正文；内容页给 2–5 条要点，每条 ≤ 26 字；" +
+    "不要输出讲师页与求助页（模板没有对应页）；目录页 4 条要与章节标题一致。";
+}
+/* 任意页 → 恰好等于模板页数、且角色与模板一致的大纲 */
+function tplShapePlan(st, pages, roles){
+  const R = (roles && roles.length) ? roles.slice() : ["cover","agenda","content","end"];
+  const src = (pages || []).slice();
+  const topic = String(st.topic || "心理课");
+  const C = pptTopicData(st.topic);
+  /* 1. 抽出封面/目录/结束三页，其余全部降级为内容候选 */
+  const coverSrc = src.find(p => p.type === "cover") || {};
+  const agendaSrc = src.find(p => p.type === "agenda") || {};
+  const flatItems = pg => (pg.items || []).map(it => {
+    if(typeof it === "string") return String(it).trim();
+    if(!it) return "";
+    if(it.n || it.l) return String(it.l || it.n || "").trim();
+    const t = String(it.t || "").trim(), b = String(it.b || "").trim();
+    return (t && b) ? (t + "：" + b) : (t || b);
+  }).filter(Boolean);
+  const cand = [];
+  src.forEach(pg => {
+    if(["cover","agenda","end"].indexOf(pg.type) >= 0) return;
+    const items = flatItems(pg), title = String(pg.title || "").trim();
+    if(!items.length && !title) return;
+    cand.push({ kick:String(pg.kick || "").trim(), title:title, items:items,
+      note:String(pg.note || "").split(/[\n。]/)[0].trim() });
+  });
+  /* 2. 统计章节段与每段内容页数 */
+  const segs = [];
+  R.forEach(r => {
+    if(r === "section") segs.push({ n:0, cands:[] });
+    else if(r === "content" && segs.length) segs[segs.length - 1].n++;
+  });
+  if(!segs.length) segs.push({ n:R.filter(r => r === "content").length, cands:[] });
+  /* 3. 候选取均衡分给各段（每组 ⌈剩余/剩余组数⌉） */
+  let at = 0;
+  segs.forEach((g, k) => {
+    const left = segs.length - k;
+    const take = Math.max(0, Math.ceil((cand.length - at) / left));
+    g.cands = cand.slice(at, at + take);
+    at += take;
+  });
+  /* 段内没有内容页时，候选顺延给相邻段 */
+  segs.forEach((g, k) => {
+    if(g.n || !g.cands.length) return;
+    if(k + 1 < segs.length){ segs[k + 1].cands = g.cands.concat(segs[k + 1].cands); g.cands = []; }
+    else if(k > 0){ segs[k - 1].cands = segs[k - 1].cands.concat(g.cands); g.cands = []; }
+  });
+  /* 4. 章节页标题：kick → 标题前 10 字 → 内置顺位 */
+  const SEC_DEF = ["课程导入", "核心知识", "活动体验", "总结延伸"];
+  const secName = (g, k) => {
+    const f = g && g.cands[0];
+    let t = f ? String(f.kick || "").trim() : "";
+    if(!t || !/[\u4e00-\u9fa5]/.test(t)) t = f ? String(f.title || "").trim().slice(0, 10) : "";
+    if(!t) t = SEC_DEF[k % SEC_DEF.length];
+    return smCut2(t, 12);
+  };
+  /* 5. 每段内容页：候选优先，不足用主题知识库补 */
+  const pool = [];
+  (C.points || []).forEach(p => pool.push({ title:String(p.t || ""), items:(p.b || []).map(String).slice(0, 4) }));
+  if(C.act) pool.push({ title:String(C.act.t || ""), items:(C.act.b || []).map(String).slice(0, 4) });
+  if(C.case) pool.push({ title:String(C.case.t || ""), items:(C.case.b || []).map(String).slice(0, 4) });
+  pool.push({ title:"课堂小结", items:(C.sum || []).map(String).slice(0, 4) });
+  const used = {};
+  const nextPool = () => {
+    for(const p of pool){
+      const k = p.title || "补充";
+      if(used[k]) continue;
+      used[k] = 1;
+      return { title:smCut2(k, 26) || "本课要点", sub:"", items:p.items.slice(0, 5), note:"" };
+    }
+    return null;
+  };
+  const packOf = g => {
+    const need = g.n;
+    if(!need) return [];
+    const list = g.cands.slice();
+    let out;
+    if(list.length > need){
+      out = list.slice(0, need).map(c => ({ title:smCut2(c.title, 26), sub:"", items:c.items.slice(0, 5), note:c.note }));
+      const last = out[out.length - 1];
+      list.slice(need).forEach(c => {
+        if(c.title && last.items.length < 5) last.items.push(c.title);
+        c.items.forEach(x => { if(last.items.length < 5) last.items.push(x); });
+      });
+    } else {
+      out = list.map(c => ({ title:smCut2(c.title, 26), sub:"", items:c.items.slice(0, 5), note:c.note }));
+    }
+    while(out.length < need){
+      out.push(nextPool() || { title:"课堂要点 " + (out.length + 1), sub:"",
+        items:["结合本班实际补充", "留一分钟让学生提问"], note:"" });
+    }
+    return out;
+  };
+  const packs = segs.map(packOf);
+  const cursor = segs.map(() => 0);
+  /* 6. 按 roles 顺序拼装，长度严格等于 roles.length */
+  const out = [];
+  let si = -1;
+  R.forEach(r => {
+    if(r === "cover"){
+      out.push({ role:"cover", title:smCut2(topic, 26),
+        sub:smCut2((st.grade || "初中") + " · " + (st.minutes || 40) + " 分钟", 52),
+        items:[], note:String(coverSrc.note || "").split(/[\n。]/)[0] || "" });
+    } else if(r === "agenda"){
+      out.push({ role:"agenda", title:smCut2(String(agendaSrc.title || "本课目录"), 26), sub:"",
+        items:segs.map((g, k) => secName(g, k)).slice(0, 4), note:"" });
+    } else if(r === "end"){
+      out.push({ role:"end", title:"谢谢", sub:smCut2(topic, 52), items:[], note:"" });
+    } else if(r === "section"){
+      si++;
+      out.push({ role:"section", title:secName(segs[si], si), sub:"", items:[], note:"" });
+    } else {
+      if(si < 0) si = 0;
+      const q = packs[si] || [];
+      const c = q[cursor[si]] || { title:"本课要点", sub:"", items:[], note:"" };
+      cursor[si]++;
+      out.push({ role:"content", title:c.title, sub:c.sub, items:c.items, note:c.note });
+    }
+  });
+  return out;
+}
+
+/* ================= 真模板填充：写入文字 ================= */
+function tplEsc(s){
+  return String(s == null ? "" : s)
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+/* 只改该段内所有 rPr / defRPr / endParaRPr 的 sz，避免影响其它段 */
+function tplSzSet(inner, s){
+  return inner.replace(/<a:(rPr|defRPr|endParaRPr)([^>]*?)(\/?)>/g, function(m, tag, at, self){
+    at = String(at || "").replace(/\s*\/$/, "");
+    if(/\bsz="\d+"/.test(at)) return "<a:" + tag + at.replace(/\bsz="\d+"/, 'sz="' + s + '"') + self + ">";
+    return "<a:" + tag + at + ' sz="' + s + '"' + self + ">";
+  });
+}
+/* 按容量预算求最终字号与文本：超容量先逐级降 sz（×0.9，最低 900），再按比例截断 */
+function tplFit(text, cap, sz){
+  const o = Number(sz) || 1800;
+  let s = o, c = Math.max(4, Number(cap) || 20);
+  let txt = String(text == null ? "" : text).replace(/[\r\n]+/g, " ").trim();
+  let g = 0;
+  while(txt.length > c && s > 900 && g++ < 24){
+    s = Math.max(900, Math.round(s * 0.9));
+    c = Math.max(4, Math.floor((Number(cap) || 20) * o / s));
+  }
+  if(txt.length > c) txt = txt.slice(0, Math.max(2, c - 1)) + "…";
+  return { txt:txt, sz:s };
+}
+/* 段落级写入：首 run 写文本，同段其余 a:t 置空（防重复） */
+function tplSetPara(inner, text, cap, sz){
+  if(!/<a:t>/.test(inner)) return inner;
+  const f = tplFit(text, cap, sz);
+  const esc = tplEsc(f.txt);
+  let first = true;
+  const out = inner.replace(/<a:t>([\s\S]*?)<\/a:t>/g, function(){
+    if(first){ first = false; return "<a:t>" + esc + "</a:t>"; }
+    return "<a:t></a:t>";
+  });
+  if(f.sz !== (Number(sz) || f.sz)) return tplSzSet(out, f.sz);
+  return out;
+}
+/* 按 tplParse 的槽位索引填充一页；返回新 xml 与统计 */
+function tplFillSlide(xml, page, cell){
+  const edits = {};
+  const put = function(si, pi, text, cap, sz){
+    const e = edits[si] || (edits[si] = {});
+    e[pi] = { text:String(text == null ? "" : text), cap:cap, sz:sz };
+  };
+  const C = cell || {};
+  let filled = 0, titleText = "";
+  if(page.title && C.title != null && String(C.title).trim() !== ""){
+    const f = tplFit(C.title, page.title.cap, page.title.sz);
+    put(page.title.si, page.title.pi, f.txt, page.title.cap, page.title.sz);
+    titleText = f.txt;
+    filled++;
+  }
+  const texts = [];
+  if(C.sub && String(C.sub).trim()) texts.push(String(C.sub).trim());
+  (C.items || []).forEach(function(t){ const s = String(t == null ? "" : t).trim(); if(s) texts.push(s); });
+  const slots = page.slots || [];
+  const n = Math.min(texts.length, slots.length);
+  for(let i = 0; i < n; i++){ put(slots[i].si, slots[i].pi, texts[i], slots[i].cap, slots[i].sz); filled++; }
+  /* 条目多于槽位：合并到最后一个槽，用「；」连接 */
+  if(texts.length > slots.length && slots.length){
+    const last = slots[slots.length - 1];
+    put(last.si, last.pi, texts.slice(slots.length - 1).join("；"), last.cap, last.sz);
+  }
+  /* 槽位多于条目：多余段落的 a:t 全部置空（保留 a:p 与 pPr） */
+  let cleared = 0;
+  for(let i = texts.length; i < slots.length; i++){
+    put(slots[i].si, slots[i].pi, "", slots[i].cap, slots[i].sz);
+    cleared++;
+  }
+  if(!Object.keys(edits).length) return { xml:xml, changed:false, filled:0, cleared:0, slots:slots.length, titleText:"" };
+  let si = 0, touched = 0;
+  const out = xml.replace(/<p:sp(?:\s[^>]*)?>[\s\S]*?<\/p:sp>/g, function(m){
+    const i = si++;
+    const e = edits[i];
+    if(!e) return m;
+    let pi = 0;
+    return m.replace(/<a:p>([\s\S]*?)<\/a:p>/g, function(pm, inner){
+      const k = pi++;
+      const t = e[k];
+      if(!t) return pm;
+      const r = tplSetPara(inner, t.text, t.cap, t.sz);
+      if(r !== inner) touched++;
+      return "<a:p>" + r + "</a:p>";
+    });
+  });
+  return { xml:out, changed:out !== xml, filled:filled, cleared:cleared,
+    slots:slots.length, titleText:titleText, touched:touched };
+}
+/* 从 p:sldIdLst 摘掉末尾 drop 页（不物理删除 slide 部件，OPC 允许未引用） */
+function tplDropSld(xml, drop){
+  if(drop <= 0) return { xml:xml, removed:0 };
+  const re = /<p:sldId\b[^>]*\/>/g, ms = [];
+  let m;
+  while((m = re.exec(xml))) ms.push(m);
+  const cut = ms.length - drop;
+  if(cut <= 0) return { xml:xml, removed:0 };
+  const first = ms[cut], last = ms[ms.length - 1];
+  return { xml:xml.slice(0, first.index) + xml.slice(last.index + last[0].length), removed:drop };
+}
+
+/* ================= 真模板填充：ZIP 重打包 ================= */
+async function mxDeflateRaw(u8){
+  if(typeof CompressionStream === "undefined") return null;
+  try{
+    const cs = new CompressionStream("deflate-raw");
+    const blob = new Blob([u8]);
+    const ab = await new Response(blob.stream().pipeThrough(cs)).arrayBuffer();
+    return new Uint8Array(ab);
+  }catch(e){ return null; }
+}
+/* 保留未改条目的原始压缩字节，仅重压被改条目；重算 offset 后重建中央目录与 EOCD */
+async function mxZipRewrite(buf, replace, opt){
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  const rm = replace || {};
+  let eocd = -1;
+  for(let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--){
+    if(b[i] === 0x50 && b[i + 1] === 0x4b && b[i + 2] === 0x05 && b[i + 3] === 0x06){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error("ZIP 结构异常：找不到目录结尾");
+  const cnt = mxU16(b, eocd + 10), cdOf = mxU32(b, eocd + 16);
+  if(cnt === 0xFFFF || cdOf === 0xFFFFFFFF) throw new Error("暂不支持 ZIP64 模板");
+  const ents = [];
+  let p = cdOf;
+  for(let i = 0; i < cnt; i++){
+    if(p + 46 > b.length || mxU32(b, p) !== 0x02014b50) throw new Error("ZIP 中央目录损坏（第 " + (i + 1) + " 项）");
+    const flags = mxU16(b, p + 8), method = mxU16(b, p + 10);
+    const dtime = mxU16(b, p + 12), ddate = mxU16(b, p + 14);
+    const crc = mxU32(b, p + 16), csize = mxU32(b, p + 20), usize = mxU32(b, p + 24);
+    const nlen = mxU16(b, p + 28), xlen = mxU16(b, p + 30), clen = mxU16(b, p + 32);
+    const lof = mxU32(b, p + 42);
+    const name = mxUtf8(b.subarray(p + 46, p + 46 + nlen));
+    if(flags & 1) throw new Error("模板已加密（" + name + "），无法填充");
+    if(csize === 0xFFFFFFFF || usize === 0xFFFFFFFF || lof === 0xFFFFFFFF) throw new Error("暂不支持 ZIP64 模板");
+    ents.push({ name:name, flags:flags, method:method, dtime:dtime, ddate:ddate, crc:crc,
+      csize:csize, usize:usize, lof:lof,
+      extra:b.subarray(p + 46 + nlen, p + 46 + nlen + xlen),
+      cmt:b.subarray(p + 46 + nlen + xlen, p + 46 + nlen + xlen + clen) });
+    p += 46 + nlen + xlen + clen;
+  }
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let off = 0, hit = 0;
+  for(let i = 0; i < ents.length; i++){
+    const e = ents[i];
+    const nm = enc.encode(e.name);
+    const lx = mxU16(b, e.lof + 28);
+    const start = e.lof + 30 + mxU16(b, e.lof + 26) + lx;
+    let end = start + e.csize;
+    if(e.flags & 8) end += (end + 4 <= b.length && mxU32(b, end) === 0x08074b50) ? 16 : 12;
+    if(end > b.length) throw new Error("ZIP 数据越界（" + e.name + "）");
+    const rep0 = rm[e.name];
+    const rep = rep0 == null ? null : (rep0 instanceof Uint8Array ? rep0 : enc.encode(String(rep0)));
+    if(rep){
+      hit++;
+      const z = await mxDeflateRaw(rep);
+      const useZ = !!(z && z.length < rep.length);
+      const payload = useZ ? z : rep;
+      const method = useZ ? 8 : 0;
+      const crc = mxCrc32(rep), cs = payload.length, us = rep.length;
+      const lh = new Uint8Array(30 + nm.length);
+      const dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true);
+      dv.setUint16(6, 0x0800, true); dv.setUint16(8, method, true);
+      dv.setUint16(10, e.dtime, true); dv.setUint16(12, e.ddate, true);
+      dv.setUint32(14, crc, true); dv.setUint32(18, cs, true); dv.setUint32(22, us, true);
+      dv.setUint16(26, nm.length, true); dv.setUint16(28, 0, true);
+      lh.set(nm, 30);
+      parts.push(lh, payload);
+      const cd = new Uint8Array(46 + nm.length);
+      const cv = new DataView(cd.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true); cv.setUint16(10, method, true);
+      cv.setUint16(12, e.dtime, true); cv.setUint16(14, e.ddate, true);
+      cv.setUint32(16, crc, true); cv.setUint32(20, cs, true); cv.setUint32(24, us, true);
+      cv.setUint16(28, nm.length, true); cv.setUint16(30, 0, true); cv.setUint16(32, 0, true);
+      cv.setUint16(34, 0, true); cv.setUint16(36, 0, true); cv.setUint32(38, 0, true);
+      cv.setUint32(42, off, true);
+      cd.set(nm, 46);
+      central.push(cd);
+      off += lh.length + payload.length;
+    }else{
+      const raw = b.subarray(e.lof, end);
+      parts.push(raw);
+      const cd = new Uint8Array(46 + nm.length + e.extra.length + e.cmt.length);
+      const cv = new DataView(cd.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint16(8, e.flags, true); cv.setUint16(10, e.method, true);
+      cv.setUint16(12, e.dtime, true); cv.setUint16(14, e.ddate, true);
+      cv.setUint32(16, e.crc, true); cv.setUint32(20, e.csize, true); cv.setUint32(24, e.usize, true);
+      cv.setUint16(28, nm.length, true); cv.setUint16(30, e.extra.length, true); cv.setUint16(32, e.cmt.length, true);
+      cv.setUint16(34, 0, true); cv.setUint16(36, 0, true); cv.setUint32(38, 0, true);
+      cv.setUint32(42, off, true);
+      cd.set(nm, 46);
+      cd.set(e.extra, 46 + nm.length);
+      cd.set(e.cmt, 46 + nm.length + e.extra.length);
+      central.push(cd);
+      off += raw.length;
+    }
+  }
+  let cLen = 0;
+  for(let i = 0; i < central.length; i++) cLen += central[i].length;
+  const end2 = new Uint8Array(22);
+  const ev = new DataView(end2.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, central.length, true); ev.setUint16(10, central.length, true);
+  ev.setUint32(12, cLen, true); ev.setUint32(16, off, true);
+  const out = new Uint8Array(off + cLen + 22);
+  let q = 0;
+  for(let i = 0; i < parts.length; i++){ out.set(parts[i], q); q += parts[i].length; }
+  for(let i = 0; i < central.length; i++){ out.set(central[i], q); q += central[i].length; }
+  out.set(end2, q);
+  return { buf:out, hit:hit, entries:central.length };
+}
+/* 用真模板生成：解析 → 逐页填充 → 摘尾 → 重打包 */
+async function tplBuildDeck(buf, T, plan, st, onMsg){
+  const say = typeof onMsg === "function" ? onMsg : function(){};
+  const pages = await tplParse(buf);
+  if(!pages.length) throw new Error("模板里没有可用的幻灯片");
+  const R = (TPL_PAGES[T.id] && TPL_PAGES[T.id].roles && TPL_PAGES[T.id].roles.length)
+    ? TPL_PAGES[T.id].roles : tplInferRoles(pages);
+  const keep = Math.max(1, Math.min(plan.length, pages.length, R.length));
+  const replace = {}, probes = [], warn = [];
+  let filled = 0, cleared = 0, noSlot = 0, touched = 0;
+  for(let i = 0; i < keep; i++){
+    const pg = pages[i], cell = plan[i] || {};
+    const r = tplFillSlide(pg.xml, pg, cell);
+    if(r.changed){ replace["ppt/slides/slide" + pg.no + ".xml"] = mxU8(r.xml); touched++; }
+    filled += r.filled;
+    cleared += r.cleared;
+    if(r.titleText) probes.push({ no:pg.no, text:r.titleText });
+    if(!r.slots){
+      noSlot++;
+      warn.push("第 " + (i + 1) + " 页无可填文字槽，已原样保留");
+    }
+  }
+  const drop = pages.length - keep;
+  const auxNeed = drop > 0 ? ["ppt/presentation.xml", "docProps/app.xml"] : ["docProps/app.xml"];
+  let aux = [];
+  try{ aux = await mxUnzip(buf, auxNeed); }catch(e){ warn.push("未能读取文档属性：" + (e && e.message || e)); }
+  const getXml = function(n){
+    for(let i = 0; i < aux.length; i++) if(aux[i].name === n) return mxUtf8(aux[i].data);
+    return null;
+  };
+  if(drop > 0){
+    const pres = getXml("ppt/presentation.xml");
+    if(pres){
+      const r2 = tplDropSld(pres, drop);
+      if(r2.removed) replace["ppt/presentation.xml"] = mxU8(r2.xml);
+      else warn.push("presentation.xml 页数不足，未能摘尾");
+    }
+  }
+  const app = getXml("docProps/app.xml");
+  if(app){
+    const a2 = app.replace(/<Slides>\d+<\/Slides>/, "<Slides>" + keep + "</Slides>");
+    if(a2 !== app) replace["docProps/app.xml"] = mxU8(a2);
+  }
+  const z = await mxZipRewrite(buf, replace, {});
+  say("填充 " + keep + " 页 · 写入 " + filled + " 段 · 清空 " + cleared + " 段" + (drop > 0 ? " · 摘尾 " + drop + " 页" : ""));
+  return { buf:z.buf, keep:keep, drop:drop, changed:touched, filled:filled, cleared:cleared,
+    noSlot:noSlot, probes:probes, warn:warn, roles:R, total:pages.length };
+}
+/* 真模板输出校验：可见页数看 sldIdLst，不看物理 slide 部件数 */
+async function mxVerifyTpl(blob, expect, probes){
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const v = { bytes:blob.size, zip:false, slides:0, shown:0, media:0, appXml:0,
+    sizeOk:blob.size > 20000, badSlides:[], miss:[], notes:[], zipErr:"" };
+  if(buf[0] !== 0x50 || buf[1] !== 0x4b) return v;
+  try{
+    const all = await mxUnzip(buf, ["ppt/presentation.xml", "docProps/app.xml", "ppt/media/", "ppt/slides/slide"]);
+    v.zip = true;
+    const slides = [], aux = [];
+    all.forEach(function(h){
+      if(/^ppt\/slides\/slide\d+\.xml$/.test(h.name)) slides.push(h);
+      else aux.push(h);
+    });
+    v.slides = slides.length;
+    if(!slides.length) v.notes.push("未解析到任何幻灯片部件");
+    slides.forEach(function(h){ if(!h.data.length) v.badSlides.push(h.name); });
+    aux.forEach(function(h){
+      if(h.name === "ppt/presentation.xml"){
+        const x = mxUtf8(h.data);
+        const lst = /<p:sldIdLst>([\s\S]*?)<\/p:sldIdLst>/.exec(x);
+        v.shown = lst ? (lst[1].match(/<p:sldId\b/g) || []).length : 0;
+        if(!lst) v.notes.push("presentation.xml 缺少 sldIdLst");
+      }else if(h.name === "docProps/app.xml"){
+        const m = /<Slides>(\d+)<\/Slides>/.exec(mxUtf8(h.data));
+        v.appXml = m ? Number(m[1]) : 0;
+      }else if(h.name.indexOf("ppt/media/") === 0) v.media++;
+    });
+    (probes || []).slice(0, 6).forEach(function(pr){
+      const nm = "ppt/slides/slide" + pr.no + ".xml";
+      const h = slides.filter(function(x){ return x.name === nm; })[0];
+      if(!h){ v.miss.push(nm + " 缺失"); return; }
+      if(mxUtf8(h.data).indexOf(tplEsc(pr.text)) < 0)
+        v.miss.push("第 " + pr.no + " 页未命中标题「" + pr.text + "」");
+    });
+  }catch(e){
+    v.zipErr = String(e && e.message || e);
+    return v;
+  }
+  v.countOk = v.shown === expect;
+  v.physOk = v.slides >= expect;
+  v.appOk = v.appXml === expect;
+  v.probeOk = !v.miss.length;
+  v.slideOk = !v.badSlides.length;
+  v.ok = v.zip && v.countOk && v.appOk && v.probeOk && v.slideOk;
+  return v;
+}
+
 /* 复用判定：主题/年级/时长/教案/补充要求/页数任一变化才重新排课，否则保留用户单页修改 */
 function mxPlanKey(st){
   return smPlanSig(st) + "|" + smHash(String(st.req || "")) + "|" + (st.pageN || 15);
@@ -6287,11 +6823,16 @@ async function mxVerifyPptx(blob, expect){
   v.countOk = v.slides === expect;
   return v;
 }
-async function pptGenerate(){
+async function pptGenerate(opts){
   const st = pptState();
+  const outlineOnly = !!(opts && opts.outlineOnly);
+  /* 真模板：只有选中具体模板（非自动 / 非基础配色 / 非参考图取色）才按模板原件填充 */
+  const T = (st.tpl && st.tpl !== "auto" && st.tpl !== "base" && st.theme !== "custom") ? smTplById(st.tpl) : null;
   const btn = $("#ppt-gen");
+  const btnO = $("#ppt-outline-make");
   if(!st.topic) st.topic = "情绪管理";
   if(btn) btn.disabled = true;
+  if(btnO) btnO.disabled = true;
   mxStyleInject();
   MX_LOG.length = 0;
   let stage = 0;
@@ -6334,8 +6875,12 @@ async function pptGenerate(){
     const canReuse = !!(prev && Array.isArray(prev.pages) && prev.pages.length >= 10 &&
       prev.sig === smPlanSig(st) && (!prev.planKey || prev.planKey === planKeyNow));
     let pages, reused = false;
+    /* 真模板：页数锁定为模板可用页数；非模板仍按设置页数 */
+    const fitN = function(ps){
+      return T ? mxFitPagesN(st, ps, TPL_USABLE(T.id)) : mxFitPages(st, ps);
+    };
     if(canReuse){
-      pages = mxFitPages(st, prev.pages.map(x => Object.assign({}, x)));
+      pages = fitN(prev.pages.map(x => Object.assign({}, x)));
       reused = true;
       mxStagePaint(2, -1, "沿用当前大纲（保留你的单页修改与换图）");
       mxLog("沿用当前大纲：" + pages.length + " 页，未重新调模型");
@@ -6346,10 +6891,10 @@ async function pptGenerate(){
       }catch(e){
         mxLog("模型排课失败，改用本地解析：" + (e && e.message || e));
         mxStagePaint(2, -1, "模型排课失败（" + (e && e.message || e) + "），改用本地解析");
-        pages = mxFitPages(st, smNorm(smLessonParse(mxMatText() || st.plan, st), st));
+        pages = fitN(smNorm(smLessonParse(mxMatText() || st.plan, st), st));
       }
     }else{
-      pages = mxFitPages(st, smNorm(smLessonParse(mxMatText() || st.plan, st), st));
+      pages = fitN(smNorm(smLessonParse(mxMatText() || st.plan, st), st));
       mxLog("本地排课完成：" + pages.length + " 页");
     }
     pages = pages.map(p => Object.assign({}, p));
@@ -6384,43 +6929,73 @@ async function pptGenerate(){
     mxStagePaint(4, -1, imgNote);
     mxLog("配图匹配：" + imgNote);
 
-    /* 5 正在生成 PPT：真实写入字节，并解析 pptx 校验 */
+    /* 4.5 只做大纲：写完大纲就停，等用户确认后再点「一键生成 PPT」 */
+    if(outlineOnly){
+      if($("#ppt-outline")) $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st), tplRoleTags(st));
+      mxStagePaint(4, -1, "大纲已生成：" + pages.length + " 页" + (T ? " · 模板「" + T.nm + "」" : ""));
+      if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(mxQaPages(st, pages));
+      if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + pages.length + " 页 · 生成后还会检查文件本身";
+      mxSetOut("大纲已生成：" + pages.length + " 页，确认后可点「② 一键生成 PPT」", "ok");
+      mxLog("大纲阶段完成：" + pages.length + " 页，未生成文件");
+      return;
+    }
+
+    /* 5 正在生成 PPT：真模板走原件填充，其余用内置引擎新建 */
     stage = 5;
-    mxStagePaint(5, -1, "正在生成 PPTX…");
-    let pptx = ppBuildDeck(st);
-    let outType = "blob", blob = null;
-    try{
-      blob = await pptx.write({ outputType: outType });
-    }catch(e){
-      mxLog("blob 导出失败，尝试 base64：" + (e && e.message || e));
-      const b64 = await pptx.write({ outputType:"base64" });
-      const bin = atob(String(b64).replace(/^data:[^,]+,/, ""));
-      const u8 = new Uint8Array(bin.length);
-      for(let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-      blob = new Blob([u8], { type:"application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+    mxStagePaint(5, -1, T ? "正在按「" + T.nm + "」模板填充…" : "正在生成 PPTX…");
+    let deck = null, blob = null;
+    if(T){
+      const tplBuf = await tplFetch(T, function(msg){ mxStagePaint(5, -1, msg); });
+      const cell = tplShapePlan(st, pages, tplRoles(T.id));
+      mxStagePaint(5, -1, "正在写入 " + cell.length + " 页内容…");
+      deck = await tplBuildDeck(tplBuf, T, cell, st, function(msg){ mxLog(msg); });
+      blob = new Blob([deck.buf], { type:"application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      mxLog("模板填充：" + deck.keep + " 页 · 写入 " + deck.filled + " 段 · 清空 " + deck.cleared + " 段" + (deck.drop ? " · 摘尾 " + deck.drop + " 页" : ""));
+      deck.warn.forEach(function(w){ mxLog("提示：" + w); });
+    }else{
+      const pptx = ppBuildDeck(st);
+      try{
+        blob = await pptx.write({ outputType:"blob" });
+      }catch(e){
+        mxLog("blob 导出失败，尝试 base64：" + (e && e.message || e));
+        const b64 = await pptx.write({ outputType:"base64" });
+        const bin = atob(String(b64).replace(/^data:[^,]+,/, ""));
+        const u8 = new Uint8Array(bin.length);
+        for(let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        blob = new Blob([u8], { type:"application/vnd.openxmlformats-officedocument.presentationml.presentation" });
+      }
     }
     if(!blob || !blob.size) throw new Error("生成的 PPTX 为空");
     mxLog("PPTX 已生成：" + mxBytes(blob.size) + " · " + pages.length + " 页");
 
-    /* 6 正在检查：文件结构 + 页面内容质检，问题能修就修并重建 */
+    /* 6 正在检查：文件结构 + 页面内容质检；内置引擎的问题能修就修并重建 */
     stage = 6;
     mxStagePaint(6, -1, "正在检查文件与页面质量…");
-    let verify = await mxVerifyPptx(blob, pages.length);
+    let verify = deck ? await mxVerifyTpl(blob, deck.keep, deck.probes) : await mxVerifyPptx(blob, pages.length);
     let qa = mxQaPages(st, pages);
     let fixed = { n:0, msg:"" };
-    const badIssues = qa.filter(x => x.lv !== "ok").length;
-    if(badIssues){
-      fixed = mxQaFix(st);
-      if(fixed.n > 0){
-        mxLog("质检自动修复 " + fixed.n + " 处，重建文件");
-        pages = smPlan(st);
-        pptx = ppBuildDeck(st);
-        blob = await pptx.write({ outputType:"blob" });
-        verify = await mxVerifyPptx(blob, pages.length);
-        qa = mxQaPages(st, pages);
+    if(!deck){
+      const badIssues = qa.filter(x => x.lv !== "ok").length;
+      if(badIssues){
+        fixed = mxQaFix(st);
+        if(fixed.n > 0){
+          mxLog("质检自动修复 " + fixed.n + " 处，重建文件");
+          pages = smPlan(st);
+          blob = await ppBuildDeck(st).write({ outputType:"blob" });
+          verify = await mxVerifyPptx(blob, pages.length);
+          qa = mxQaPages(st, pages);
+        }
       }
     }
-    const fileChecks = [
+    /* 真模板可见页数以 sldIdLst 为准（物理 slide 部件可能多于可见页） */
+    const shownPages = deck ? verify.shown : verify.slides;
+    const fileChecks = deck ? [
+      { k:"文件可解析", lv:verify.zip ? "ok" : "bad", msg:verify.zip ? "模板原件重打包成功，ZIP 结构正常" : "文件结构异常：" + (verify.zipErr || "") },
+      { k:"页数", lv:(verify.countOk && verify.appOk) ? "ok" : "bad", msg:"文件内 " + verify.shown + " 页（属性 " + verify.appXml + " 页），模板可用 " + deck.keep + " 页" + ((verify.countOk && verify.appOk) ? "" : "（不一致，请重新生成）") },
+      { k:"标题写入", lv:verify.probeOk ? "ok" : "warn", msg:verify.probeOk ? "抽查 " + Math.min(6, deck.probes.length) + " 页标题已写入原模板" : verify.miss.join("；") },
+      { k:"模板元素", lv:verify.slideOk ? "ok" : "bad", msg:"沿用模板内嵌 " + verify.media + " 个媒体/图形部件，版式与配图未改" + (verify.badSlides.length ? "；" + verify.badSlides.length + " 页 XML 为空" : "") },
+      { k:"文件大小", lv:verify.sizeOk ? "ok" : "warn", msg:mxBytes(verify.bytes) + (verify.sizeOk ? "，含真实内容" : "，偏小，请检查") }
+    ] : [
       { k:"文件可解析", lv:verify.zip ? "ok" : "bad", msg:verify.zip ? "ZIP 结构正常，可被 PowerPoint 打开检查" : "文件结构异常：" + (verify.zipErr || "") },
       { k:"页数", lv:verify.countOk ? "ok" : "bad", msg:"文件内 " + verify.slides + " 页，大纲 " + pages.length + " 页" + (verify.countOk ? "" : "（不一致，请重新生成）") },
       { k:"文件大小", lv:verify.sizeOk ? "ok" : "warn", msg:mxBytes(verify.bytes) + (verify.sizeOk ? "，含真实内容" : "，偏小，请检查") },
@@ -6428,20 +7003,20 @@ async function pptGenerate(){
     ];
     const allQa = fileChecks.concat(qa);
     if($("#ppt-qa")) $("#ppt-qa").innerHTML = mxQaHTML(allQa);
-    if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "已检查 " + pages.length + " 页 · " + (fixed.n ? "自动修复 " + fixed.n + " 处" : "无需自动修复");
+    if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "已检查 " + pages.length + " 页" + (deck ? " · 模板「" + T.nm + "」" : "") + " · " + (fixed.n ? "自动修复 " + fixed.n + " 处" : "无需自动修复");
 
     /* 7 生成完成：保存版本 + 下载 */
     stage = 7;
     const safe = String(st.topic).replace(/[\\/:*?"<>|]/g, "");
     const fileName = st.grade + "_" + safe + "_课件.pptx";
-    MX_LAST.blob = blob; MX_LAST.name = fileName; MX_LAST.slides = verify.slides; MX_LAST.at = Date.now(); MX_LAST.bytes = blob.size;
+    MX_LAST.blob = blob; MX_LAST.name = fileName; MX_LAST.slides = shownPages; MX_LAST.at = Date.now(); MX_LAST.bytes = blob.size;
     mxVerSave(st, "生成 " + new Date().toLocaleTimeString("zh-CN"));
     mxDownload(blob, fileName);
     let extra = "";
     if(st.toPlan && pptAddPlan(st)) extra = "　已记入课程排期";
     mxStagePaint(7, -1, "已生成 " + fileName + "（" + mxBytes(blob.size) + "）");
-    mxSetOut("已生成 " + fileName + " · " + verify.slides + " 页" + extra, "ok");
-    mxLog("完成：" + fileName + " · " + verify.slides + " 页 · " + mxBytes(blob.size));
+    mxSetOut("已生成 " + fileName + " · " + shownPages + " 页" + (deck ? " · 模板「" + T.nm + "」" : "") + extra, "ok");
+    mxLog("完成：" + fileName + " · " + shownPages + " 页 · " + mxBytes(blob.size));
   }catch(err){
     const msg = err && err.message ? err.message : String(err);
     mxStagePaint(Math.min(7, stage), Math.min(7, stage), "失败：" + msg);
@@ -6449,7 +7024,12 @@ async function pptGenerate(){
     mxLog("失败：" + msg);
   }finally{
     if(btn) btn.disabled = false;
+    if(btnO) btnO.disabled = false;
   }
+}
+/* 第一段：只生成大纲（页面上的主按钮 ①） */
+function pptOutlineMake(){
+  return pptGenerate({ outlineOnly:true });
 }
 function mxRedownload(){
   if(!MX_LAST.blob){ mxSetOut("还没有生成过文件", "err"); return; }
@@ -6594,30 +7174,25 @@ function renderPpt(){
     `<div class="ppt-chip ${k===st.topic?"on":""}" data-topic="${attr(k)}">${esc(k)}</div>`).join("");
   const segHTML = (arr, cur, cls) => arr.map(v=>
     `<div class="opt ${String(v)===String(cur)?"on":""}" data-v="${attr(String(v))}">${esc(String(v))}</div>`).join("");
-  const swBase = ["warm","mint","night"].map(k=>{
-    const t=PPT_THEMES[k];
-    return `<div class="ppt-sw ${k===st.theme?"on":""}" data-theme="${k}">
-      <div class="bar" style="background:linear-gradient(90deg,#${t.bg} 0%,#${t.soft} 55%,#${t.accent} 100%)"></div>
-      <div class="nm">${esc(t.nm)}</div><div class="dsc">${k==="warm"?"暖米底 · 适合日常":k==="mint"?"浅绿底 · 适合成长主题":"深蓝底 · 适合晚课"}</div></div>`;
-  }).join("");
-  const ref = (data.__pptStyleRef && data.__pptStyleRef.thumb) ? data.__pptStyleRef : null;
-  const swHTML = swBase + `<div class="ppt-sw ppt-ref ${ref?"":"empty"} ${st.theme==="custom"?"on":""}" data-theme="custom">
-      <div class="bar" style="${ref
-        ? "background-image:url('" + ref.thumb + "');background-size:cover;background-position:center"
-        : "background:repeating-linear-gradient(45deg,#E9E3DA 0 6px,#F6F2EA 6px 12px)"}"></div>
-      <div class="nm">参考图</div>
-      <div class="dsc">${ref?'点此使用 · <span class="up" data-ref="again">换一张</span>':'<span class="up" data-ref="pick">上传封面取色</span>'}</div>
-    </div><input type="file" id="ppt-ref-file" accept="image/*" hidden />`;
   const TR = smTpl(st);
   const tplAutoOn = st.theme !== "custom" && !TR.base && !!TR.auto;
-  const tplMode = st.theme !== "custom" && !TR.base;
+  /* 真模板判定：只有选中具体模板（自动匹配 / 基础配色 / 参考图取色都不算）才按模板原件填充 */
+  const isRealTpl = s => !!(s && s.tpl && s.tpl !== "auto" && s.tpl !== "base" && s.theme !== "custom");
+  const T = isRealTpl(st) ? smTplById(st.tpl) : null;
+  const lockN = T ? TPL_USABLE(T.id) : 0;
+  const tplState = Tx => Tx
+    ? "已锁定「" + Tx.nm + "」原模板 · " + TPL_USABLE(Tx.id) + " 页 · " + String(Tx.file || "")
+      + "。生成时把内容写进这份 .pptx 的原有页面，图片、图形与配色原样保留；首次使用会从「模板库」文件夹读取原件，读取失败会提示你手动选文件。"
+    : "点上方卡片选定某一套模板后，改为「原模板填充」：图片、图形、配色与模板完全一致，只换文字，页数自动锁定为该模板的可用页数。";
+  /* 当前锁定页数（选模板后可能被用户中途改掉，所以每次现算，不用渲染时那份快照） */
+  const curLock = () => { const Tx = isRealTpl(st) ? smTplById(st.tpl) : null; return { T: Tx, n: Tx ? TPL_USABLE(Tx.id) : 0 }; };
   /* ---------- 模板库 ----------
      按钮只显示「当前用的是哪套 + 版式描述」；真实缩略图放进弹层，首次打开才渲染，
      每套用当前主题实排 3 页（封面 / 目录 / 卡片），所以看到的是版式与元素，不只是配色。 */
   const tlibName = R => R.base ? "基础配色 · 不套模板"
     : (R.auto ? "AI 已匹配 · " : "已选 · ") + R.t.nm;
   const tlibSub = R => R.base ? "点此打开模板库，从 " + PPT_TEMPLATES.length + " 套里挑一套"
-    : smLayDesc(R.t.id) + " · 点此更换";
+    : smLayDesc(R.t.id) + " · " + TPL_USABLE(R.t.id) + " 页 · 点此更换";
   const tlibSw = R => R.base
     ? "repeating-linear-gradient(45deg,#E9E3DA 0 6px,#F6F2EA 6px 12px)"
     : "linear-gradient(135deg,#" + (R.t.hero || R.t.pal.accent) + " 0%,#" + R.t.pal.soft + " 58%,#" + R.t.pal.bg + " 100%)";
@@ -6696,15 +7271,15 @@ function renderPpt(){
   const tlibClose = () => { const m = $("#ppt-tlib-mask"); if(m) m.hidden = true; };
   const planN = String(st.plan || "").trim().length;
   const planState = planN
-    ? "已录入 " + planN + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排 12–16 页"
-    : "可粘贴教案，或上传课本照片识别（需视觉模型）。照片首张会自动取主色，作为整份配色。";
+    ? "已录入 " + planN + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排" + (lockN ? " " + lockN + " 页（锁定模板）" : " 12–16 页")
+    : "可粘贴教案，或上传课本照片识别（需视觉模型）；有教案时大纲按教案内容排页。";
   const warmN = smWarmList(st.warm).length;
   const warmState = warmN
     ? "已录入 " + warmN + " 个活动 · 排课时按主题挑 1 个最匹配的，并写选择理由"
     : "一行一个活动名即可；排课时自动与课堂主题匹配";
 
   $("#screen").innerHTML = `
-    <div class="header"><div><h2>一键出课件</h2><p>选主题或输入要求，AI 编排版式，浏览器内直接生成 PPTX（已内嵌，无需联网）</p></div>
+    <div class="header"><div><h2>一键出课件</h2><p>选主题 → ① AI 生成大纲 → ② 选模板一键出 PPTX（浏览器内生成，无需联网）</p></div>
       <div class="spacer"></div><span class="date-chip">${icon("calendar",14)} ${dateStr()}</span></div>
     <div class="ppt-wrap">
       <div class="ppt-col-main">
@@ -6718,13 +7293,9 @@ function renderPpt(){
           <div class="field"><label>学段</label><div class="seg seg-6" id="ppt-grade">${segHTML(grades, st.grade)}</div></div>
           <div class="frow">
             <div class="field"><label>时长（分钟）</label><div class="seg" id="ppt-min">${segHTML(mins, st.minutes)}</div>
-              <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="mx-mini">课件页数</span><input id="ppt-pages" type="number" min="10" max="18" value="${st.pageN||15}" style="width:64px;border:1px solid #E2DBCE;border-radius:7px;padding:4px 6px;font-size:12px"/><span class="mx-mini">页（10–18）</span></div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span class="mx-mini">课件页数</span><input id="ppt-pages" type="number" min="10" max="18" value="${lockN||st.pageN||15}" ${lockN?"disabled":""} style="width:64px;border:1px solid #E2DBCE;border-radius:7px;padding:4px 6px;font-size:12px"/><span class="mx-mini" id="ppt-pages-hint">${lockN?("页（锁定模板 "+lockN+" 页）"):"页（10–18）"}</span></div>
             </div>
             <div class="field"><label>版式</label><div class="seg" id="ppt-style"><div class="opt ${(st.style||"smart")==="smart"?"on":""}" data-v="smart">智能版式</div><div class="opt ${st.style==="poster"?"on":""}" data-v="poster">海报卡片</div></div></div>
-          </div>
-          <div class="field"><label>配色 <span class="en">COLOR</span></label>
-            <div class="ppt-swatch ${tplMode?"dim":""}" id="ppt-theme">${swHTML}</div>
-            <div class="ppt-ainote">选了模板后配色、字体与版式几何全部由模板接管；点任意配色卡即切回「基础配色」，可再单独调色。</div>
           </div>
           <div class="field"><label>模板 <span class="en">TEMPLATE</span></label>
             <div class="ppt-tplauto ${tplAutoOn?"on":""}" id="ppt-tplauto">
@@ -6736,11 +7307,11 @@ function renderPpt(){
               <span class="tx"><b id="ppt-tlib-cur">${esc(tlibName(TR))}</b><em id="ppt-tlib-desc">${esc(tlibSub(TR))}</em></span>
               <span class="ct">模板库 · ${PPT_TEMPLATES.length} 套</span>
             </button>
-            <div class="ppt-ainote">打开后可看每套模板的原版封面，点卡片即按这套版式与配色生成；卡片下方「打开原版 PPT」直接下载原件。</div>
+            <div class="ppt-ainote" id="ppt-tplstate">${esc(tplState(T))}</div>
           </div>
           <div class="field"><label>生成要求（可选） <span class="en">BRIEF</span></label>
             <textarea id="ppt-req" rows="2" style="min-height:62px" placeholder="例如：初三、节奏紧、多用数据和流程；少用大段文字；结尾落到行动">${esc(st.req||"")}</textarea>
-            <div class="ppt-ainote">填好后点「AI 编排版式」，模型会按要求重排页面顺序与版式；不填则用内置版式。</div>
+            <div class="ppt-ainote">填好后点「① AI 生成大纲」，模型会按要求先排好每一页；确认或补充资料后再点「② 一键生成 PPT」。</div>
           </div>
           <div class="field"><label>教学资料 <span class="en">MATERIALS</span></label>
             <div class="mx-pre" style="margin-bottom:8px">
@@ -6780,7 +7351,8 @@ function renderPpt(){
           <label class="ppt-toggle"><input type="checkbox" id="ppt-notes" ${st.notes?"checked":""}/> 生成讲师备注（放映时在「演示者视图」可见）</label>
           <label class="ppt-toggle"><input type="checkbox" id="ppt-toplan" ${st.toPlan?"checked":""}/> 生成后自动记入「课程排期」</label>
           <div class="ppt-actions">
-            <button class="btn" id="ppt-gen">一键生成 PPTX</button>
+            <button class="btn" id="ppt-outline-make">① AI 生成大纲</button>
+            <button class="btn" id="ppt-gen">② 一键生成 PPT</button>
             <button class="btn ghost" id="ppt-redl">再次下载</button>
             <button class="btn ghost" id="ppt-version">版本</button>
             <button class="btn ghost" id="ppt-pv">视觉预览</button>
@@ -6788,7 +7360,7 @@ function renderPpt(){
             <span class="ppt-state" id="ppt-state"></span>
           </div>
           <div id="ppt-stage2">${mxStageBarHTML()}</div>
-          <div class="ppt-note">生成后会自动下载到浏览器的下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>预设 6 个主题有专属内容；自己输入的主题会套用通用结构，仍可直接改文案。</div>
+          <div class="ppt-note">两步走：先「① AI 生成大纲」（或上传资料后点「解析资料并排课」补内容），确认无误再「② 一键生成 PPT」。文件自动下载到浏览器下载目录，文件名形如「初二_情绪管理_课件.pptx」。<br/>选中具体模板时走「原模板填充」：版式、配图与装饰全部沿用模板文件，只替换文字；自动匹配 / 基础配色仍走内置排版。</div>
         </div>
         <div class="ppt-card${PPT_LLM_FOLD ? " fold" : ""}" id="ppt-llm-card">
           <h3 class="ppt-fold" role="button" tabindex="0" aria-expanded="${PPT_LLM_FOLD ? "false" : "true"}" title="点击展开 / 收起">
@@ -6819,7 +7391,7 @@ function renderPpt(){
       <div class="ppt-side">
         <div class="ppt-card">
           <h3>${icon("book",17)} 大纲预览 <span class="en">OUTLINE</span></h3>
-          <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st))}</div>
+          <div class="ppt-outline" id="ppt-outline">${pptOutlineHTML(pptOutline(st), tplRoleTags(st))}</div>
           <div class="ppt-actions" style="margin-top:8px">
             <button class="btn ghost" id="ppt-edit-outline" style="height:30px;padding:0 12px;font-size:12px">编辑大纲</button>
             <button class="btn ghost" id="ppt-export-outline" style="height:30px;padding:0 12px;font-size:12px">导出大纲</button>
@@ -6828,7 +7400,7 @@ function renderPpt(){
         </div>
         <div class="ppt-card">
           <h3>质量检查 <span class="en">QA</span></h3>
-          <div class="ppt-ainote" id="ppt-qa-sub">检查 ${smPlan(st).length} 页 · 生成后还会检查文件本身</div>
+          <div class="ppt-ainote" id="ppt-qa-sub">检查 ${lockN || smPlan(st).length} 页 · 生成后还会检查文件本身</div>
           <div id="ppt-qa">${mxQaHTML(mxQaPages(st, smPlan(st)))}</div>
           <div class="ppt-actions" style="margin-top:8px"><button class="btn ghost" id="ppt-qa-fix" style="height:30px;padding:0 12px;font-size:12px">一键修复可自动处理项</button></div>
         </div>
@@ -6843,7 +7415,7 @@ function renderPpt(){
       <div class="ppt-tlib" role="dialog" aria-modal="true" aria-label="模板库">
         <div class="ppt-tlibhead">
           <h4>模板库 <span class="en">TEMPLATE LIBRARY</span></h4>
-          <p>${PPT_TEMPLATES.length} 套 wps 原版模板，封面就是原 PPT 的第一页，原件原样存放在本页旁边的「模板库」文件夹。点卡片 = 按这套模板的版式与配色生成课件；点卡片下方的「打开原版 PPT」= 直接拿到那份 .pptx 原件。</p>
+          <p>${PPT_TEMPLATES.length} 套 wps 原版模板，封面就是原 PPT 的第一页，原件原样存放在本页旁边的「模板库」文件夹。点卡片 = 用这套模板的原件填内容（版式、图片与装饰原样保留，只换文字，页数锁定为该模板可用页数）；点卡片下方的「打开原版 PPT」= 直接拿到那份 .pptx 原件。</p>
           <button class="x" id="ppt-tlib-x" type="button" aria-label="关闭">✕</button>
         </div>
         <div class="ppt-tlibgrid" id="ppt-tlib-grid"></div>
@@ -6851,10 +7423,10 @@ function renderPpt(){
     </div>`;
 
   const planPaint = () => {
-    const n = String(st.plan || "").trim().length;
+    const n = String(st.plan || "").trim().length, ln = curLock().n;
     if($("#ppt-planstate")) $("#ppt-planstate").textContent = n
-      ? "已录入 " + n + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排 12–16 页"
-      : "可粘贴教案，或上传课本照片识别（需视觉模型）。照片首张会自动取主色，作为整份配色。";
+      ? "已录入 " + n + " 字 · " + smPlanState(st) + "；点「按教案排课」按教案重排" + (ln ? " " + ln + " 页（锁定模板）" : " 12–16 页")
+      : "可粘贴教案，或上传课本照片识别（需视觉模型）；有教案时大纲按教案内容排页。";
     if($("#ppt-warmstate")){
       const libN = mxWarmLib().length, wn = smWarmList(st.warm).length;
       $("#ppt-warmstate").textContent = libN
@@ -6865,18 +7437,25 @@ function renderPpt(){
   };
   const sync = () => {
     if($("#llm-plan")) $("#llm-plan").textContent = smHasAi(st) ? "重新编排版式" : "AI 编排版式";
-    $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st));
+    $("#ppt-outline").innerHTML = pptOutlineHTML(pptOutline(st), tplRoleTags(st));
     $("#pv-grid").innerHTML = pvGridHTML(st);
     $("#ppt-meta").textContent = pptMetaText(st);
-    const R2 = smTpl(st), md = st.theme !== "custom" && !R2.base;
+    const R2 = smTpl(st);
     if($("#ppt-tplnote")) $("#ppt-tplnote").textContent = smTplNote(st);
     if($("#ppt-tplauto")) $("#ppt-tplauto").classList.toggle("on", st.theme !== "custom" && !!R2.auto);
     if($("#ppt-tlib-cur")) $("#ppt-tlib-cur").textContent = tlibName(R2);
     if($("#ppt-tlib-desc")) $("#ppt-tlib-desc").textContent = tlibSub(R2);
     if($("#ppt-tlib-sw")) $("#ppt-tlib-sw").style.background = tlibSw(R2);
     tlibMark();
-    if($("#ppt-theme")) $("#ppt-theme").classList.toggle("dim", md);
-    if($("#ppt-theme")) $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o.dataset.theme === st.theme));
+    /* 选 / 换 / 取消模板都会走 sync：页数锁定、模板说明条、QA 页数要跟着一起变 */
+    const CK = curLock(), pi = $("#ppt-pages");
+    if(pi){
+      pi.disabled = !!CK.n;
+      pi.value = CK.n || st.pageN || 15;
+    }
+    if($("#ppt-pages-hint")) $("#ppt-pages-hint").textContent = CK.n ? ("页（锁定模板 " + CK.n + " 页）") : "页（10–18）";
+    if($("#ppt-tplstate")) $("#ppt-tplstate").textContent = tplState(CK.T);
+    if($("#ppt-qa-sub")) $("#ppt-qa-sub").textContent = "检查 " + (CK.n || smPlan(st).length) + " 页 · 生成后还会检查文件本身";
     if($("#ppt-style")) $("#ppt-style").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o.dataset.v === (st.style||"smart")));
     $("#ppt-chips").querySelectorAll("[data-topic]").forEach(el=>el.classList.toggle("on", el.dataset.topic===st.topic));
     if($("#llm-state")) llmPaint();
@@ -6904,15 +7483,6 @@ function renderPpt(){
   $("#ppt-style").querySelectorAll(".opt").forEach(el=>el.onclick=()=>{
     st.style = el.dataset.v; $("#ppt-style").querySelectorAll(".opt").forEach(o=>o.classList.toggle("on", o===el)); sync();
   });
-  $("#ppt-theme").querySelectorAll("[data-theme]").forEach(el=>el.onclick=e=>{
-    const k = el.dataset.theme;
-    if(k==="custom"){
-      const r = data.__pptStyleRef;
-      if(!r || !r.palette || (e.target.closest && e.target.closest("[data-ref='again']"))){ $("#ppt-ref-file").click(); return; }
-    }
-    st.theme = k; st.tpl = "base";
-    $("#ppt-theme").querySelectorAll("[data-theme]").forEach(o=>o.classList.toggle("on", o===el)); sync();
-  });
   if($("#ppt-tplauto")) $("#ppt-tplauto").onclick = () => { st.tpl = "auto"; sync(); };
   if($("#ppt-tlib-open")) $("#ppt-tlib-open").onclick = () => tlibOpen();
   if($("#ppt-tlib-x")) $("#ppt-tlib-x").onclick = () => tlibClose();
@@ -6933,7 +7503,6 @@ function renderPpt(){
     sync();
     tlibClose();
   });
-  $("#ppt-ref-file").onchange = e => { const f = e.target.files && e.target.files[0]; if(f) srLoad(f); e.target.value = ""; };
   $("#ppt-notes").onchange = e => { st.notes = e.target.checked; sync(); };
   $("#ppt-toplan").onchange = e => { st.toPlan = e.target.checked; store.save(); };
   if($("#ppt-req")) $("#ppt-req").addEventListener("input", e => { st.req = e.target.value; store.save(); });
@@ -7019,6 +7588,12 @@ function renderPpt(){
   };
   if($("#ppt-imgs")) $("#ppt-imgs").onchange = e => { st.imgs = e.target.checked; sync(); };
   if($("#llm-plan")) $("#llm-plan").onclick = async () => { llmRead(); await smAiWrite(st); };
+  /* 页数：锁模板时输入框已 disabled，这里只在自动匹配 / 基础配色下生效 */
+  if($("#ppt-pages")) $("#ppt-pages").addEventListener("change", e => {
+    const v = Math.max(10, Math.min(18, +e.target.value || 15));
+    st.pageN = v; e.target.value = v; sync();
+  });
+  if($("#ppt-outline-make")) $("#ppt-outline-make").onclick = () => pptOutlineMake();
   $("#ppt-gen").onclick = () => pptGenerate();
   PPT_LLM.sync = sync;
   const llmFill = () => {
@@ -7080,7 +7655,6 @@ function renderPpt(){
   });
   mxBindPpt(st);
 }
-
 
 
 function pptAddPlan(st){
